@@ -1,0 +1,23 @@
+[package]
+name = "extv"
+version = "0.1.0"
+edition = "2021"
+
+# No dependencies, and none are coming. The whole point is to read the
+# on-disk format rather than to call something that already has.
+[dependencies]
+
+[[bin]]
+name = "extv"
+path = "src/main.rs"
+
+[features]
+# Deliberate one-past-the-end reads, compiled in only for `make overread`.
+# See the comment on that target.
+plant_overread_block = []
+plant_overread_dirent = []
+plant_overread_inode = []
+
+[profile.release]
+debug = true
+panic = "unwind"

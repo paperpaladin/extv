@@ -1,0 +1,6 @@
+target/
+extv
+*.img
+*.img.*
+t/scratch/
+*.rlib
