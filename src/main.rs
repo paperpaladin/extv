@@ -8,13 +8,31 @@
 //   2  the image is malformed and extv refuses to guess
 //   3  usage error, or the file could not be read
 
+mod err;
+mod img;
+mod sb;
+mod show;
+
+use err::Result;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
 usage: extv COMMAND IMAGE [ARG]
 
-  super IMAGE            superblock fields, one per line
+  super IMAGE            superblock fields, one key and value per line
 ";
+
+fn run(args: &[String]) -> Result<i32> {
+    let image = &args[1];
+    let mut i = img::Img::open(image)?;
+    let sb = sb::Sb::read(&i)?;
+    i.bsize = sb.block_size;
+    match args[0].as_str() {
+        "super" => show::super_block(&i, &sb)?,
+        _ => unreachable!(),
+    }
+    Ok(0)
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -22,6 +40,20 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    eprintln!("extv: unknown command: {}", args[0]);
-    ExitCode::from(3)
+    let known = ["super"];
+    if !known.contains(&args[0].as_str()) {
+        eprintln!("extv: unknown command: {}", args[0]);
+        return ExitCode::from(3);
+    }
+    if args.len() < 2 {
+        eprintln!("extv: {}: no image given", args[0]);
+        return ExitCode::from(3);
+    }
+    match run(&args) {
+        Ok(code) => ExitCode::from(code as u8),
+        Err(e) => {
+            eprintln!("extv: {}", e);
+            ExitCode::from(e.exit_code())
+        }
+    }
 }
