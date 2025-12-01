@@ -19,11 +19,20 @@ fail=0
 ok() { pass=$((pass + 1)); echo "ok   $1"; }
 no() { fail=$((fail + 1)); echo "FAIL $1"; }
 
+# Shell functions have no local scope, so every variable in one of these
+# is prefixed. The first version assigned to "name", which is also the
+# loop variable the caller is iterating with, and the suite spent a run
+# reporting "ext4-1024-256 super exits 0 super (48 fields)" as the name
+# of an image.
 check_exit() {
-	name=$1; want=$2; shift 2
+	_ce_name=$1; _ce_want=$2; shift 2
 	"$@" >/dev/null 2>&1
-	got=$?
-	if [ "$got" = "$want" ]; then ok "$name"; else no "$name (exit $got, want $want)"; fi
+	_ce_got=$?
+	if [ "$_ce_got" = "$_ce_want" ]; then
+		ok "$_ce_name"
+	else
+		no "$_ce_name (exit $_ce_got, want $_ce_want)"
+	fi
 }
 
 if [ ! -x "$EXTV" ]; then
@@ -76,11 +85,40 @@ census() {
 }
 census
 
-# Every image has to be readable at all before any field is worth
-# comparing.
+: > "$scratch/counts"
+
+# Run a comparison helper and fold its result into the running totals.
+# The DONE line is the point: a helper that dies halfway through prints
+# neither ok nor FAIL for the work it did not reach, and the silence
+# would otherwise read as nothing to report.
+helper() {
+	_h_name=$1
+	shift
+	"$@" > "$scratch/helper.out" 2> "$scratch/helper.err"
+	_h_rc=$?
+	grep -v '^COUNT \|^DONE' "$scratch/helper.out"
+	_h_p=$(grep -c '^ok   ' "$scratch/helper.out")
+	_h_f=$(grep -c '^FAIL ' "$scratch/helper.out")
+	pass=$((pass + _h_p))
+	fail=$((fail + _h_f))
+	grep '^COUNT ' "$scratch/helper.out" >> "$scratch/counts"
+	if [ "$_h_rc" != 0 ] || ! grep -q '^DONE' "$scratch/helper.out"; then
+		fail=$((fail + 1))
+		echo "FAIL $_h_name: helper did not finish (exit $_h_rc)"
+		sed 's/^/     /' "$scratch/helper.err"
+	fi
+}
+
+echo "--- superblock against dumpe2fs -h"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 	check_exit "$name super exits 0" 0 "$EXTV" super "$img"
+	helper "$name" python3 "$here/cmp_super.py" "$EXTV" "$img" "$name"
 done < "$scratch/manifest"
+
+echo
+echo "--- measured totals"
+awk '{t[$2] += $3} END {for (k in t) printf "     %s %d\n", k, t[k]}' \
+	"$scratch/counts" | sort
 
 echo
 echo "$pass passed, $fail failed"
