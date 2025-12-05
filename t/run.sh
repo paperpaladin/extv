@@ -116,6 +116,12 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- block group descriptors against dumpe2fs"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	helper "$name" python3 "$here/cmp_groups.py" "$EXTV" "$img" "$name"
+done < "$scratch/manifest"
+
+echo
 echo "--- measured totals"
 awk '{t[$2] += $3} END {for (k in t) printf "     %s %d\n", k, t[k]}' \
 	"$scratch/counts" | sort

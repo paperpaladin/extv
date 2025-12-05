@@ -9,17 +9,20 @@
 //   3  usage error, or the file could not be read
 
 mod err;
+mod group;
 mod img;
 mod sb;
 mod show;
 
 use err::Result;
+use std::io::Write;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
 usage: extv COMMAND IMAGE [ARG]
 
   super IMAGE            superblock fields, one key and value per line
+  groups IMAGE           every block group descriptor
 ";
 
 fn run(args: &[String]) -> Result<i32> {
@@ -27,10 +30,17 @@ fn run(args: &[String]) -> Result<i32> {
     let mut i = img::Img::open(image)?;
     let sb = sb::Sb::read(&i)?;
     i.bsize = sb.block_size;
+    // One buffered writer for everything. Unbuffered printing costs a
+    // write(2) per line, and the block list of a large file is hundreds
+    // of thousands of lines.
+    let stdout = std::io::stdout();
+    let mut w = std::io::BufWriter::new(stdout.lock());
     match args[0].as_str() {
-        "super" => show::super_block(&i, &sb)?,
+        "super" => show::super_block(&mut w, &i, &sb)?,
+        "groups" => show::groups(&mut w, &i, &sb)?,
         _ => unreachable!(),
     }
+    w.flush()?;
     Ok(0)
 }
 
@@ -40,7 +50,7 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    let known = ["super"];
+    let known = ["super", "groups"];
     if !known.contains(&args[0].as_str()) {
         eprintln!("extv: unknown command: {}", args[0]);
         return ExitCode::from(3);

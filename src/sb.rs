@@ -309,6 +309,15 @@ impl Sb {
     pub fn has_ro(&self, bit: u32) -> bool {
         self.feature_ro_compat & bit != 0
     }
+    // Group descriptors carry a checksum, and therefore meaningful
+    // bg_flags, only under one of these two features. e2fsprogs tests
+    // exactly this before printing either, and the corpus proves why: a
+    // plain ext2 image built by mke2fs has bg_flags 4 on disk in every
+    // group, which would read as "the inode table is zeroed" from a
+    // reader that trusted the field. dumpe2fs prints nothing for it.
+    pub fn has_group_desc_csum(&self) -> bool {
+        self.has_ro(RO_GDT_CSUM) || self.has_ro(RO_METADATA_CSUM)
+    }
     pub fn is_64bit(&self) -> bool {
         self.has_incompat(INCOMPAT_64BIT)
     }
