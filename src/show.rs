@@ -1,4 +1,5 @@
 use crate::err::Result;
+use crate::csum;
 use crate::group;
 use crate::img::Img;
 use crate::sb::Sb;
@@ -108,6 +109,55 @@ pub fn groups(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
         p("checksum", format!("0x{:04x}", d.checksum))?;
         p("block_bitmap_csum", format!("0x{:x}", d.block_bitmap_csum))?;
         p("inode_bitmap_csum", format!("0x{:x}", d.inode_bitmap_csum))?;
+    }
+    Ok(())
+}
+
+// Checksums, recomputed and compared against what is on disk. mke2fs
+// wrote those numbers with an implementation written by somebody else,
+// so agreement is an external check and not a comparison of extv with
+// itself.
+pub fn checksums(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
+    // Which form is in use is printed first, so the suite can assert
+    // that the corpus reaches both. A crc16 implementation that is never
+    // run agrees with everything.
+    writeln!(
+        w,
+        "form {}",
+        if sb.has_ro(crate::sb::RO_METADATA_CSUM) {
+            "crc32c"
+        } else if sb.has_ro(crate::sb::RO_GDT_CSUM) {
+            "crc16"
+        } else {
+            "none"
+        }
+    )?;
+    let s = csum::superblock(sb);
+    writeln!(
+        w,
+        "super stored 0x{:08x} computed 0x{:08x} {}",
+        sb.checksum,
+        s,
+        if !sb.has_ro(crate::sb::RO_METADATA_CSUM) {
+            "n/a"
+        } else if s == sb.checksum {
+            "ok"
+        } else {
+            "BAD"
+        }
+    )?;
+    if csum::group_desc_applies(sb) {
+        for g in 0..sb.group_count {
+            let (stored, computed) = csum::read_group_csum(img, sb, g)?;
+            writeln!(
+                w,
+                "group {} stored 0x{:04x} computed 0x{:04x} {}",
+                g,
+                stored,
+                computed,
+                if stored == computed { "ok" } else { "BAD" }
+            )?;
+        }
     }
     Ok(())
 }

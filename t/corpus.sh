@@ -96,6 +96,13 @@ mk ext4-2048-128-noextent-nocsum 64M ext4 2048 128 noextent,nocsum \
 	-O ^extent,^64bit,^metadata_csum
 mk ext4-1024-256-no64bit 64M ext4 1024 256 extent,csum -O ^64bit
 mk ext4-1024-256-nocsum 64M  ext4 1024 256 extent,64bit -O ^metadata_csum
+# uninit_bg is the older group checksum, a crc16 over the UUID and the
+# descriptor rather than a crc32c. Without an image that has it and not
+# metadata_csum, that branch is never executed and agrees with anything.
+mk ext4-1024-256-uninitbg 64M ext4 1024 256 uninitbg,extent,64bit \
+	-O ^metadata_csum,uninit_bg
+mk ext4-1024-256-uninitbg-32 64M ext4 1024 256 uninitbg,extent \
+	-O ^metadata_csum,^64bit,uninit_bg
 mk ext4-4096-256-bigalloc 64M ext4 4096 256 bigalloc,extent,64bit,csum \
 	-O bigalloc -C 16384
 mk ext4-1024-256-inline 64M  ext4 1024 256 inline,extent,64bit,csum -O inline_data

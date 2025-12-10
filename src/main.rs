@@ -8,6 +8,8 @@
 //   2  the image is malformed and extv refuses to guess
 //   3  usage error, or the file could not be read
 
+mod crc;
+mod csum;
 mod err;
 mod group;
 mod img;
@@ -23,6 +25,7 @@ usage: extv COMMAND IMAGE [ARG]
 
   super IMAGE            superblock fields, one key and value per line
   groups IMAGE           every block group descriptor
+  csum IMAGE             recompute the metadata checksums
 ";
 
 fn run(args: &[String]) -> Result<i32> {
@@ -38,6 +41,7 @@ fn run(args: &[String]) -> Result<i32> {
     match args[0].as_str() {
         "super" => show::super_block(&mut w, &i, &sb)?,
         "groups" => show::groups(&mut w, &i, &sb)?,
+        "csum" => show::checksums(&mut w, &i, &sb)?,
         _ => unreachable!(),
     }
     w.flush()?;
@@ -50,7 +54,7 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    let known = ["super", "groups"];
+    let known = ["super", "groups", "csum"];
     if !known.contains(&args[0].as_str()) {
         eprintln!("extv: unknown command: {}", args[0]);
         return ExitCode::from(3);

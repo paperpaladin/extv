@@ -122,6 +122,38 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- metadata checksums recomputed"
+: > "$scratch/forms"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	if ! "$EXTV" csum "$img" > "$scratch/csum.out" 2> "$scratch/csum.err"; then
+		no "$name csum: extv exited $? ($(head -1 "$scratch/csum.err"))"
+		continue
+	fi
+	nbad=$(grep -c ' BAD$' "$scratch/csum.out")
+	nok=$(grep -c ' ok$' "$scratch/csum.out")
+	sed -n 's/^form //p' "$scratch/csum.out" >> "$scratch/forms"
+	if [ "$nbad" != 0 ]; then
+		no "$name csum: $nbad checksums do not match what mke2fs wrote"
+		grep ' BAD$' "$scratch/csum.out" | head -3 | sed 's/^/     /'
+	else
+		ok "$name csum ($nok recomputed and matching)"
+	fi
+	echo "COUNT checksums $nok" >> "$scratch/counts"
+done < "$scratch/manifest"
+
+# Assert the paths ran. A crc16 implementation that no image reaches
+# agrees with everything, and the corpus had exactly that shape until an
+# image with uninit_bg and without metadata_csum was added.
+for form in crc32c crc16 none; do
+	n=$(grep -c "^$form\$" "$scratch/forms")
+	if [ "$n" -gt 0 ]; then
+		ok "corpus reaches the $form group descriptor checksum ($n images)"
+	else
+		no "corpus reaches the $form group descriptor checksum (0 images)"
+	fi
+done
+
+echo
 echo "--- measured totals"
 awk '{t[$2] += $3} END {for (k in t) printf "     %s %d\n", k, t[k]}' \
 	"$scratch/counts" | sort

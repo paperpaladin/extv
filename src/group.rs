@@ -89,7 +89,11 @@ pub fn has_super(sb: &Sb, g: u64) -> bool {
     false
 }
 
-pub fn read_group(img: &Img, sb: &Sb, g: u64) -> Result<Group> {
+// The descriptor's own bytes, in a buffer of exactly desc_size. The
+// checksum is computed over them, so they are copied out rather than
+// kept as a slice of the block: the copy is the same size as the data,
+// which is the rule the whole program follows.
+pub fn read_group_raw(img: &Img, sb: &Sb, g: u64) -> Result<Vec<u8>> {
     if g >= sb.group_count {
         return bad(format!(
             "group {} is past the last group ({})",
@@ -99,13 +103,15 @@ pub fn read_group(img: &Img, sb: &Sb, g: u64) -> Result<Group> {
     }
     let (block, off) = desc_location(sb, g)?;
     let buf = img.block(block)?;
-    let d = V::new(
-        match buf.get(off..off + sb.desc_size as usize) {
-            Some(s) => s,
-            None => return bad(format!("group {} descriptor runs past block {}", g, block)),
-        },
-        "group descriptor",
-    );
+    match buf.get(off..off + sb.desc_size as usize) {
+        Some(s) => Ok(s.to_vec()),
+        None => bad(format!("group {} descriptor runs past block {}", g, block)),
+    }
+}
+
+pub fn read_group(img: &Img, sb: &Sb, g: u64) -> Result<Group> {
+    let raw = read_group_raw(img, sb, g)?;
+    let d = V::new(&raw, "group descriptor");
     let wide = sb.is_64bit() && sb.desc_size >= 64;
     Ok(Group {
         block_bitmap: d.u32_pair(0, 32, wide)?,
