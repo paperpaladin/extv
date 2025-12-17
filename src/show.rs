@@ -1,6 +1,7 @@
 use crate::err::Result;
 use crate::csum;
 use crate::group;
+use crate::inode;
 use crate::img::Img;
 use crate::sb::Sb;
 use std::io::Write;
@@ -158,6 +159,42 @@ pub fn checksums(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
                 if stored == computed { "ok" } else { "BAD" }
             )?;
         }
+    }
+    Ok(())
+}
+
+pub fn stat(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
+    let i = inode::read(img, sb, num)?;
+    let mut p = |k: &str, v: String| -> Result<()> {
+        writeln!(w, "{} {}", k, v)?;
+        Ok(())
+    };
+    p("inode", i.num.to_string())?;
+    p("in_use", if i.in_use() { "yes" } else { "no" }.to_string())?;
+    p("type", i.type_name().to_string())?;
+    p("mode", format!("{:04o}", i.mode & 0o7777))?;
+    p("mode_raw", format!("0x{:04x}", i.mode))?;
+    p("flags", format!("0x{:x}", i.flags))?;
+    p("generation", i.generation.to_string())?;
+    p("version", format!("0x{:08x}:{:08x}", i.version >> 32, i.version as u32))?;
+    p("uid", i.uid.to_string())?;
+    p("gid", i.gid.to_string())?;
+    p("projid", i.projid.to_string())?;
+    p("size", i.size.to_string())?;
+    p("file_acl", i.file_acl.to_string())?;
+    p("links", i.links_count.to_string())?;
+    p("blockcount", i.blocks.to_string())?;
+    p("atime", format!("0x{:08x}:{:08x}", i.atime, i.atime_extra))?;
+    p("ctime", format!("0x{:08x}:{:08x}", i.ctime, i.ctime_extra))?;
+    p("mtime", format!("0x{:08x}:{:08x}", i.mtime, i.mtime_extra))?;
+    p("crtime", format!("0x{:08x}:{:08x}", i.crtime, i.crtime_extra))?;
+    p("dtime", format!("0x{:08x}", i.dtime))?;
+    p("extra_isize", i.extra_isize.to_string())?;
+    p("checksum", format!("0x{:x}", i.checksum))?;
+    if sb.has_ro(crate::sb::RO_METADATA_CSUM) {
+        let c = csum::inode(sb, num, &i.raw, i.extra_isize);
+        p("checksum_computed", format!("0x{:x}", c))?;
+        p("checksum_ok", if c == i.checksum { "yes" } else { "no" }.to_string())?;
     }
     Ok(())
 }

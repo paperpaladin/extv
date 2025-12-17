@@ -122,6 +122,12 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- inodes against debugfs stat"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	helper "$name" python3 "$here/cmp_inodes.py" "$EXTV" "$img" "$name" 600
+done < "$scratch/manifest"
+
+echo
 echo "--- metadata checksums recomputed"
 : > "$scratch/forms"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do

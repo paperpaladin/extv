@@ -81,6 +81,8 @@ pub const RO_SPARSE_SUPER: u32 = 0x0001;
 pub const RO_METADATA_CSUM: u32 = 0x0400;
 pub const RO_GDT_CSUM: u32 = 0x0010;
 pub const RO_BIGALLOC: u32 = 0x0200;
+pub const RO_HUGE_FILE: u32 = 0x0008;
+pub const RO_LARGE_FILE: u32 = 0x0002;
 
 pub struct Sb {
     pub raw: Vec<u8>,

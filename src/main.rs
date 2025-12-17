@@ -13,6 +13,7 @@ mod csum;
 mod err;
 mod group;
 mod img;
+mod inode;
 mod sb;
 mod show;
 
@@ -26,7 +27,46 @@ usage: extv COMMAND IMAGE [ARG]
   super IMAGE            superblock fields, one key and value per line
   groups IMAGE           every block group descriptor
   csum IMAGE             recompute the metadata checksums
+  stat IMAGE INODE[-N]   one inode, or a range of them, field by field
 ";
+
+// Commands that take an inode number accept it bare or in the angle
+// bracket form debugfs uses, so a command line can be copied from one
+// tool to the other.
+fn number(a: Option<&String>) -> Result<u64> {
+    let s = match a {
+        Some(s) => s.trim_start_matches('<').trim_end_matches('>'),
+        None => return Err(err::Error::Io("an inode number is required".into())),
+    };
+    let (radix, digits) = if let Some(h) = s.strip_prefix("0x") {
+        (16, h)
+    } else {
+        (10, s)
+    };
+    u64::from_str_radix(digits, radix)
+        .map_err(|_| err::Error::Io(format!("{}: not a number", s)))
+}
+
+// An inode number or an inclusive range of them. The range form exists
+// for the test harness: comparing six hundred inodes against debugfs
+// one process at a time is slower than everything else in the suite put
+// together.
+fn range(a: Option<&String>) -> Result<(u64, u64)> {
+    let s = match a {
+        Some(s) => s.as_str(),
+        None => return Err(err::Error::Io("an inode number is required".into())),
+    };
+    match s.split_once('-') {
+        Some((f, l)) => Ok((
+            number(Some(&f.to_string()))?,
+            number(Some(&l.to_string()))?,
+        )),
+        None => {
+            let n = number(Some(&s.to_string()))?;
+            Ok((n, n))
+        }
+    }
+}
 
 fn run(args: &[String]) -> Result<i32> {
     let image = &args[1];
@@ -42,6 +82,12 @@ fn run(args: &[String]) -> Result<i32> {
         "super" => show::super_block(&mut w, &i, &sb)?,
         "groups" => show::groups(&mut w, &i, &sb)?,
         "csum" => show::checksums(&mut w, &i, &sb)?,
+        "stat" => {
+            let (first, last) = range(args.get(2))?;
+            for n in first..=last {
+                show::stat(&mut w, &i, &sb, n as u32)?;
+            }
+        }
         _ => unreachable!(),
     }
     w.flush()?;
@@ -54,7 +100,7 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    let known = ["super", "groups", "csum"];
+    let known = ["super", "groups", "csum", "stat"];
     if !known.contains(&args[0].as_str()) {
         eprintln!("extv: unknown command: {}", args[0]);
         return ExitCode::from(3);

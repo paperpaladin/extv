@@ -50,6 +50,31 @@ pub fn group_desc(sb: &Sb, g: u64, raw: &[u8]) -> u16 {
     }
 }
 
+// The inode checksum: crc32c over the whole inode with both halves of
+// the checksum field zeroed, seeded with the filesystem seed, then the
+// little-endian inode number, then the generation. The inode number is
+// in the seed rather than the data, which is what stops a copied inode
+// from validating in another slot.
+pub fn inode(sb: &Sb, num: u32, raw: &[u8], extra_isize: u16) -> u32 {
+    let mut d = raw.to_vec();
+    d[124] = 0;
+    d[125] = 0;
+    let has_hi = sb.inode_size > 128 && extra_isize >= 4;
+    if has_hi {
+        d[130] = 0;
+        d[131] = 0;
+    }
+    let gen = u32::from_le_bytes([raw[100], raw[101], raw[102], raw[103]]);
+    let mut c = crc32c(seed(sb), &num.to_le_bytes());
+    c = crc32c(c, &gen.to_le_bytes());
+    c = crc32c(c, &d);
+    if has_hi {
+        c
+    } else {
+        c & 0xffff
+    }
+}
+
 pub fn group_desc_applies(sb: &Sb) -> bool {
     sb.has_ro(RO_METADATA_CSUM) || sb.has_ro(RO_GDT_CSUM)
 }
