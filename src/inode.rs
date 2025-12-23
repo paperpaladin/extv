@@ -82,6 +82,23 @@ impl Inode {
     pub fn has_inline_data(&self) -> bool {
         self.flags & FL_INLINE_DATA != 0
     }
+    // A symlink short enough to fit keeps its target in the sixty bytes
+    // that would otherwise hold block pointers, so walking them reads
+    // the text as block numbers. The test is not the length: e2fsprogs
+    // asks whether the inode owns any data blocks at all, counting out
+    // the one an extended attribute block would use, because a long
+    // target with a big xattr is still a slow link.
+    pub fn is_fast_symlink(&self, block_size: u32) -> bool {
+        if !self.is_symlink() || self.has_inline_data() {
+            return false;
+        }
+        let acl_blocks = if self.file_acl != 0 {
+            (block_size / 512) as u64
+        } else {
+            0
+        };
+        self.blocks.saturating_sub(acl_blocks) == 0
+    }
 }
 
 // Byte offset of an inode in the image. The inode table of the group is

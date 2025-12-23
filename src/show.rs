@@ -2,6 +2,7 @@ use crate::err::Result;
 use crate::csum;
 use crate::group;
 use crate::inode;
+use crate::map;
 use crate::img::Img;
 use crate::sb::Sb;
 use std::io::Write;
@@ -195,6 +196,55 @@ pub fn stat(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
         let c = csum::inode(sb, num, &i.raw, i.extra_isize);
         p("checksum_computed", format!("0x{:x}", c))?;
         p("checksum_ok", if c == i.checksum { "yes" } else { "no" }.to_string())?;
+    }
+    Ok(())
+}
+
+// The block map of one inode, in the order and with the collapsing
+// debugfs uses, plus a summary line the suite reads to assert that the
+// deep paths were actually taken by something in the corpus.
+pub fn blockmap(w: &mut impl Write, img: &Img, sb: &Sb, num: u32, flat: bool) -> Result<()> {
+    let i = inode::read(img, sb, num)?;
+    let (entries, counts) = map::walk(img, sb, &i)?;
+    // The inode number is printed even for one inode, because the
+    // harness asks for a range and otherwise could not tell where one
+    // map ends and the next begins.
+    writeln!(w, "inode {}", num)?;
+    for e in &entries {
+        match e {
+            map::Entry::Data { lo, hi, plo, phi } => {
+                if flat {
+                    for k in 0..=(hi - lo) {
+                        writeln!(w, "{}", plo + k)?;
+                    }
+                } else {
+                    writeln!(w, "data {} {} {} {}", lo, hi, plo, phi)?;
+                }
+            }
+            map::Entry::Meta { kind, phys } => {
+                if flat {
+                    writeln!(w, "{}", phys)?;
+                } else {
+                    writeln!(w, "meta {} {}", kind, phys)?;
+                }
+            }
+        }
+    }
+    if !flat {
+        writeln!(
+            w,
+            "summary data {} ind {} dind {} tind {} etb {} depth {} uninit {} \
+inline {} fast_symlink {}",
+            counts.data,
+            counts.ind,
+            counts.dind,
+            counts.tind,
+            counts.etb,
+            counts.depth,
+            counts.uninit,
+            counts.inline,
+            counts.fast_symlink
+        )?;
     }
     Ok(())
 }

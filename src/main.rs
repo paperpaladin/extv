@@ -10,10 +10,13 @@
 
 mod crc;
 mod csum;
+mod blockmap;
 mod err;
+mod extent;
 mod group;
 mod img;
 mod inode;
+mod map;
 mod sb;
 mod show;
 
@@ -28,6 +31,8 @@ usage: extv COMMAND IMAGE [ARG]
   groups IMAGE           every block group descriptor
   csum IMAGE             recompute the metadata checksums
   stat IMAGE INODE[-N]   one inode, or a range of them, field by field
+  map IMAGE INODE        the blocks of an inode, with the metadata blocks
+  blocks IMAGE INODE     the same, as a flat list of physical blocks
 ";
 
 // Commands that take an inode number accept it bare or in the angle
@@ -82,6 +87,12 @@ fn run(args: &[String]) -> Result<i32> {
         "super" => show::super_block(&mut w, &i, &sb)?,
         "groups" => show::groups(&mut w, &i, &sb)?,
         "csum" => show::checksums(&mut w, &i, &sb)?,
+        "map" | "blocks" => {
+            let (first, last) = range(args.get(2))?;
+            for n in first..=last {
+                show::blockmap(&mut w, &i, &sb, n as u32, args[0] == "blocks")?;
+            }
+        }
         "stat" => {
             let (first, last) = range(args.get(2))?;
             for n in first..=last {
@@ -100,7 +111,7 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    let known = ["super", "groups", "csum", "stat"];
+    let known = ["super", "groups", "csum", "stat", "map", "blocks"];
     if !known.contains(&args[0].as_str()) {
         eprintln!("extv: unknown command: {}", args[0]);
         return ExitCode::from(3);

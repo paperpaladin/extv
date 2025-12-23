@@ -128,6 +128,12 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- block maps and extent trees against debugfs"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	helper "$name" python3 "$here/cmp_blocks.py" "$EXTV" "$img" "$name" 600
+done < "$scratch/manifest"
+
+echo
 echo "--- metadata checksums recomputed"
 : > "$scratch/forms"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
@@ -156,6 +162,24 @@ for form in crc32c crc16 none; do
 		ok "corpus reaches the $form group descriptor checksum ($n images)"
 	else
 		no "corpus reaches the $form group descriptor checksum (0 images)"
+	fi
+done
+
+# Assert the paths ran. An indirect map test on a corpus whose deepest
+# file fits in twelve direct blocks passes without executing a line of
+# the indirect code, and the same goes for the extent tree's interior
+# nodes.
+echo
+echo "--- paths reached by the corpus"
+for path in ind dind tind etb inline fast_symlinks; do
+	n=$(awk -v k="path_$path" '$2 == k {t += $3} END {print t + 0}' "$scratch/counts")
+	if [ "$path" = fast_symlinks ]; then
+		n=$(awk '$2 == "fast_symlinks" {t += $3} END {print t + 0}' "$scratch/counts")
+	fi
+	if [ "$n" -gt 0 ]; then
+		ok "corpus reaches $path ($n times)"
+	else
+		no "corpus reaches $path (never: that code is untested)"
 	fi
 done
 
