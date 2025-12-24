@@ -16,6 +16,7 @@ pub enum Entry {
         hi: u64,
         plo: u64,
         phi: u64,
+        uninit: bool,
     },
     Meta {
         kind: &'static str,
@@ -39,7 +40,7 @@ pub struct Counts {
 pub struct Builder {
     pub out: Vec<Entry>,
     pub counts: Counts,
-    cur: Option<(u64, u64, u64, u64)>,
+    cur: Option<(u64, u64, u64, u64, bool)>,
     // A file cannot own more blocks than the filesystem has. Without a
     // bound a damaged double indirect block that points at itself makes
     // this walk quadratic in the number of entries per block, which on a
@@ -70,18 +71,30 @@ impl Builder {
         Ok(())
     }
 
-    pub fn data(&mut self, logical: u64, phys: u64) -> Result<()> {
+    // A run also breaks when the uninitialised flag changes, which is
+    // what debugfs does: it prints the marker on the logical range, so
+    // an initialised and an uninitialised extent that happen to be
+    // adjacent are two entries and not one.
+    pub fn data(&mut self, logical: u64, phys: u64, uninit: bool) -> Result<()> {
         self.bump()?;
         self.counts.data += 1;
         match self.cur {
-            Some((lo, hi, plo, phi)) if hi + 1 == logical && phi + 1 == phys => {
-                self.cur = Some((lo, logical, plo, phys));
+            Some((lo, hi, plo, phi, u))
+                if hi + 1 == logical && phi + 1 == phys && u == uninit =>
+            {
+                self.cur = Some((lo, logical, plo, phys, u));
             }
-            Some((lo, hi, plo, phi)) => {
-                self.out.push(Entry::Data { lo, hi, plo, phi });
-                self.cur = Some((logical, logical, phys, phys));
+            Some((lo, hi, plo, phi, u)) => {
+                self.out.push(Entry::Data {
+                    lo,
+                    hi,
+                    plo,
+                    phi,
+                    uninit: u,
+                });
+                self.cur = Some((logical, logical, phys, phys, uninit));
             }
-            None => self.cur = Some((logical, logical, phys, phys)),
+            None => self.cur = Some((logical, logical, phys, phys, uninit)),
         }
         Ok(())
     }
@@ -100,8 +113,14 @@ impl Builder {
     }
 
     fn flush(&mut self) {
-        if let Some((lo, hi, plo, phi)) = self.cur.take() {
-            self.out.push(Entry::Data { lo, hi, plo, phi });
+        if let Some((lo, hi, plo, phi, uninit)) = self.cur.take() {
+            self.out.push(Entry::Data {
+                lo,
+                hi,
+                plo,
+                phi,
+                uninit,
+            });
         }
     }
 

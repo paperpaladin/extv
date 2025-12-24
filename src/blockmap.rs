@@ -22,7 +22,7 @@ pub fn walk(img: &Img, sb: &Sb, ino: &Inode, b: &mut Builder) -> Result<()> {
         let p = v.u32(i * 4)? as u64;
         if p != 0 {
             check_block(sb, p, "direct block pointer")?;
-            b.data(logical, p)?;
+            b.data(logical, p, false)?;
         }
         logical += 1;
     }
@@ -67,7 +67,7 @@ fn indirect(
         }
         if level == 1 {
             check_block(sb, p, "indirect block entry")?;
-            b.data(*logical, p)?;
+            b.data(*logical, p, false)?;
             *logical += 1;
         } else {
             indirect(img, sb, b, p, level - 1, logical)?;

@@ -21,7 +21,7 @@ import sys
 
 EXTV, IMG, NAME, LAST = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 
-ENTRY = re.compile(r"\(([^)]*)\):(\[?)(\d+)(?:-(\d+))?\]?")
+ENTRY = re.compile(r"\(([^)]*?)(\[u\])?\):(\d+)(?:-(\d+))?")
 
 
 def debugfs(cmds):
@@ -74,6 +74,7 @@ def parse_entries(s):
     out = []
     for m in ENTRY.finditer(s):
         what, bracket, a, b = m.group(1), m.group(2), m.group(3), m.group(4)
+        bracket = "u" if bracket else "-"
         if what in ("IND", "DIND", "TIND") or what.startswith("ETB"):
             out.append(("meta", what, int(a)))
         else:
@@ -82,7 +83,7 @@ def parse_entries(s):
             else:
                 lo = hi = what
             out.append(("data", int(lo), int(hi), int(a),
-                        int(b) if b is not None else int(a), bracket == "["))
+                        int(b) if b is not None else int(a), bracket))
     return out
 
 
@@ -100,7 +101,7 @@ def parse_extv_map(text):
             ino = int(f[1])
             out[ino] = cur
         elif f[0] == "data":
-            cur.append(("data", int(f[1]), int(f[2]), int(f[3]), int(f[4]), False))
+            cur.append(("data", int(f[1]), int(f[2]), int(f[3]), int(f[4]), f[5]))
         elif f[0] == "meta":
             cur.append(("meta", f[1], int(f[2])))
     return out, summary
@@ -169,8 +170,7 @@ def main():
         # debugfs marks an uninitialised extent with brackets; the
         # comparison keeps the flag on its side only, since extv reports
         # it in the summary line rather than per run.
-        w_cmp = [e[:5] if e[0] == "data" else e for e in w]
-        g_cmp = [e[:5] if e[0] == "data" else e for e in g]
+        w_cmp, g_cmp = w, g
         if w_cmp != g_cmp:
             bad.append("inode %d map: debugfs=%r extv=%r" % (n, w_cmp[:4], g_cmp[:4]))
             continue

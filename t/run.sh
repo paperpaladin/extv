@@ -134,6 +134,12 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- extent trees against debugfs dump_extents"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	helper "$name" python3 "$here/cmp_extents.py" "$EXTV" "$img" "$name" 600
+done < "$scratch/manifest"
+
+echo
 echo "--- metadata checksums recomputed"
 : > "$scratch/forms"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
@@ -171,11 +177,9 @@ done
 # nodes.
 echo
 echo "--- paths reached by the corpus"
-for path in ind dind tind etb inline fast_symlinks; do
-	n=$(awk -v k="path_$path" '$2 == k {t += $3} END {print t + 0}' "$scratch/counts")
-	if [ "$path" = fast_symlinks ]; then
-		n=$(awk '$2 == "fast_symlinks" {t += $3} END {print t + 0}' "$scratch/counts")
-	fi
+for path in path_ind path_dind path_tind path_etb path_inline \
+            fast_symlinks extent_uninit extent_rows_deep; do
+	n=$(awk -v k="$path" '$2 == k {t += $3} END {print t + 0}' "$scratch/counts")
 	if [ "$n" -gt 0 ]; then
 		ok "corpus reaches $path ($n times)"
 	else

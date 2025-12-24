@@ -55,6 +55,17 @@ mk() {
 		e2fsck -fDy "$img" >/dev/null 2>&1
 		;;
 	esac
+	# An uninitialised extent: allocated and never written. mke2fs
+	# cannot produce one, and without it the top bit of ee_len is
+	# never set anywhere in the corpus, so a reader that ignores it
+	# agrees with everything. debugfs fallocate is the only way to
+	# get one without a mount.
+	case ",$tags," in
+	*,extent,*)
+		debugfs -w -R "fallocate /empty 0 99" "$img" >/dev/null 2>&1
+		debugfs -w -R "fallocate /b4096 20 29" "$img" >/dev/null 2>&1
+		;;
+	esac
 	# Extended attributes. A short value fits in the inode when the inode
 	# is 256 bytes and has nowhere to go but a block when it is 128, so
 	# both paths are covered by the same two commands across the corpus.

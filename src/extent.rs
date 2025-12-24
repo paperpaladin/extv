@@ -128,7 +128,7 @@ fn node(img: &Img, sb: &Sb, b: &mut Builder, v: &V, h: &Header, level: u16) -> R
             check_block(sb, e.start, "extent")?;
             check_block(sb, e.start + e.len as u64 - 1, "extent end")?;
             for k in 0..e.len as u64 {
-                b.data(e.block as u64 + k, e.start + k)?;
+                b.data(e.block as u64 + k, e.start + k, e.uninit)?;
             }
         }
         return Ok(());
@@ -165,4 +165,105 @@ fn etb_name(level: u16) -> &'static str {
         3 => "ETB3",
         _ => "ETB4",
     }
+}
+
+// The rows debugfs dump_extents prints, in the same order and with the
+// same arithmetic. Two parts of it are not in the on-disk structure and
+// have to be reconstructed:
+//
+// the logical range an index entry covers, which runs to the next
+// sibling's first block minus one, or, for the last entry at a level,
+// to wherever the parent's range ends;
+//
+// and the root's own end, which e2fsprogs takes from the inode size as
+// ceil(size / block size) - 1. It is not the last block the tree
+// actually maps, and on a file whose size is not a whole number of
+// blocks the two differ.
+pub struct Row {
+    pub level: u16,
+    pub max_depth: u16,
+    pub index: u16,
+    pub entries: u16,
+    pub log_first: u64,
+    pub log_last: u64,
+    pub phys_first: u64,
+    pub phys_last: u64,
+    pub len: u64,
+    pub uninit: bool,
+    pub leaf: bool,
+}
+
+pub fn rows(img: &Img, sb: &Sb, ino: &Inode) -> Result<Vec<Row>> {
+    let mut out = Vec::new();
+    let v = V::new(&ino.block, "inode extent header");
+    let h = header(&v, 60)?;
+    let end = if ino.size == 0 {
+        0
+    } else {
+        (ino.size + sb.block_size as u64 - 1) / sb.block_size as u64 - 1
+    };
+    rows_node(img, sb, &v, &h, h.depth, 0, end, &mut out)?;
+    Ok(out)
+}
+
+fn rows_node(
+    img: &Img,
+    sb: &Sb,
+    v: &V,
+    h: &Header,
+    max_depth: u16,
+    level: u16,
+    end: u64,
+    out: &mut Vec<Row>,
+) -> Result<()> {
+    for i in 0..h.entries as usize {
+        if h.depth == 0 {
+            let e = leaf(v, i)?;
+            out.push(Row {
+                level,
+                max_depth,
+                index: i as u16 + 1,
+                entries: h.entries,
+                log_first: e.block as u64,
+                log_last: e.block as u64 + e.len.max(1) as u64 - 1,
+                phys_first: e.start,
+                phys_last: e.start + e.len.max(1) as u64 - 1,
+                len: e.len as u64,
+                uninit: e.uninit,
+                leaf: true,
+            });
+        } else {
+            let ix = index(v, i)?;
+            let child_end = if i + 1 < h.entries as usize {
+                index(v, i + 1)?.block as u64 - 1
+            } else {
+                end
+            };
+            out.push(Row {
+                level,
+                max_depth,
+                index: i as u16 + 1,
+                entries: h.entries,
+                log_first: ix.block as u64,
+                log_last: child_end,
+                phys_first: ix.leaf,
+                phys_last: ix.leaf,
+                len: child_end + 1 - ix.block as u64,
+                uninit: false,
+                leaf: false,
+            });
+            check_block(sb, ix.leaf, "extent index")?;
+            let buf = img.block(ix.leaf)?;
+            let cv = V::new(&buf, "extent node");
+            let ch = header(&cv, sb.block_size as usize)?;
+            if ch.depth + 1 != h.depth {
+                return bad(format!(
+                    "extent node at block {} has depth {} under a node of depth {}",
+                    ix.leaf, ch.depth, h.depth
+                ));
+            }
+            rows_node(img, sb, &cv, &ch, max_depth, level + 1, child_end, out)?;
+        }
+    }
+    Ok(())
 }

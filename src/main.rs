@@ -33,6 +33,7 @@ usage: extv COMMAND IMAGE [ARG]
   stat IMAGE INODE[-N]   one inode, or a range of them, field by field
   map IMAGE INODE        the blocks of an inode, with the metadata blocks
   blocks IMAGE INODE     the same, as a flat list of physical blocks
+  extents IMAGE INODE    the extent tree, one row per node entry
 ";
 
 // Commands that take an inode number accept it bare or in the angle
@@ -87,6 +88,12 @@ fn run(args: &[String]) -> Result<i32> {
         "super" => show::super_block(&mut w, &i, &sb)?,
         "groups" => show::groups(&mut w, &i, &sb)?,
         "csum" => show::checksums(&mut w, &i, &sb)?,
+        "extents" => {
+            let (first, last) = range(args.get(2))?;
+            for n in first..=last {
+                show::extents(&mut w, &i, &sb, n as u32)?;
+            }
+        }
         "map" | "blocks" => {
             let (first, last) = range(args.get(2))?;
             for n in first..=last {
@@ -111,7 +118,7 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    let known = ["super", "groups", "csum", "stat", "map", "blocks"];
+    let known = ["super", "groups", "csum", "stat", "map", "blocks", "extents"];
     if !known.contains(&args[0].as_str()) {
         eprintln!("extv: unknown command: {}", args[0]);
         return ExitCode::from(3);

@@ -2,6 +2,7 @@ use crate::err::Result;
 use crate::csum;
 use crate::group;
 use crate::inode;
+use crate::extent;
 use crate::map;
 use crate::img::Img;
 use crate::sb::Sb;
@@ -212,13 +213,27 @@ pub fn blockmap(w: &mut impl Write, img: &Img, sb: &Sb, num: u32, flat: bool) ->
     writeln!(w, "inode {}", num)?;
     for e in &entries {
         match e {
-            map::Entry::Data { lo, hi, plo, phi } => {
+            map::Entry::Data {
+                lo,
+                hi,
+                plo,
+                phi,
+                uninit,
+            } => {
                 if flat {
                     for k in 0..=(hi - lo) {
                         writeln!(w, "{}", plo + k)?;
                     }
                 } else {
-                    writeln!(w, "data {} {} {} {}", lo, hi, plo, phi)?;
+                    writeln!(
+                        w,
+                        "data {} {} {} {} {}",
+                        lo,
+                        hi,
+                        plo,
+                        phi,
+                        if *uninit { "u" } else { "-" }
+                    )?;
                 }
             }
             map::Entry::Meta { kind, phys } => {
@@ -244,6 +259,33 @@ inline {} fast_symlink {}",
             counts.uninit,
             counts.inline,
             counts.fast_symlink
+        )?;
+    }
+    Ok(())
+}
+
+// One line per row of what debugfs calls dump_extents. An inode with no
+// extent tree prints nothing, the way debugfs prints only its heading.
+pub fn extents(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
+    let i = inode::read(img, sb, num)?;
+    writeln!(w, "inode {}", num)?;
+    if !i.has_extents() {
+        return Ok(());
+    }
+    for r in extent::rows(img, sb, &i)? {
+        writeln!(
+            w,
+            "row {} {} {} {} {} {} {} {} {} {}",
+            r.level,
+            r.max_depth,
+            r.index,
+            r.entries,
+            r.log_first,
+            r.log_last,
+            r.phys_first,
+            r.phys_last,
+            r.len,
+            if r.uninit { "Uninit" } else { "-" }
         )?;
     }
     Ok(())
