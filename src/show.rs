@@ -7,6 +7,7 @@ use crate::extent;
 use crate::map;
 use crate::img::Img;
 use crate::sb::Sb;
+use crate::xattr;
 use std::io::Write;
 
 // Output is one "key value" pair per line, flat, with no alignment or
@@ -322,5 +323,28 @@ pub fn ls(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
         d.empty_slots,
         if d.inline { 1 } else { 0 }
     )?;
+    Ok(())
+}
+
+// Extended attributes, in the order they are stored: the ones inside
+// the inode first, then the ones in the attribute block. The value is
+// printed as hex because an attribute value is bytes, and the only
+// comparison worth making is byte for byte.
+pub fn ea(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
+    let ino = inode::read(img, sb, num)?;
+    let attrs = xattr::read(img, sb, &ino)?;
+    writeln!(w, "inode {}", num)?;
+    for a in &attrs {
+        let hex: String = a.value.iter().map(|b| format!("{:02x}", b)).collect();
+        writeln!(
+            w,
+            "attr {} {} {} {} {}",
+            a.source,
+            a.full_name(),
+            a.value.len(),
+            if a.value_inum != 0 { "ea_inode" } else { "-" },
+            hex
+        )?;
+    }
     Ok(())
 }

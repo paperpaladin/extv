@@ -20,6 +20,7 @@ mod inode;
 mod map;
 mod sb;
 mod show;
+mod xattr;
 
 use err::Result;
 use std::io::Write;
@@ -36,6 +37,7 @@ usage: extv COMMAND IMAGE [ARG]
   blocks IMAGE INODE     the same, as a flat list of physical blocks
   extents IMAGE INODE    the extent tree, one row per node entry
   ls IMAGE PATH|INODE    one directory, one entry per line
+  ea IMAGE PATH|INODE    the extended attributes of one inode
                          (an inode range lists every directory in it)
 ";
 
@@ -86,6 +88,17 @@ fn inode_arg(img: &img::Img, sb: &sb::Sb, a: Option<&String>) -> Result<u32> {
     }
 }
 
+// Every per-inode command takes one inode, a range of them, or a path.
+fn targets(img: &img::Img, sb: &sb::Sb, a: Option<&String>) -> Result<Vec<u32>> {
+    match a {
+        Some(s) if s.starts_with('/') => Ok(vec![dir::resolve(img, sb, s)?]),
+        other => {
+            let (first, last) = range(other)?;
+            Ok((first..=last).map(|n| n as u32).collect())
+        }
+    }
+}
+
 fn run(args: &[String]) -> Result<i32> {
     let image = &args[1];
     let mut i = img::Img::open(image)?;
@@ -119,22 +132,24 @@ fn run(args: &[String]) -> Result<i32> {
                 show::ls(&mut w, &i, &sb, n)?
             }
         },
+        "ea" => {
+            for n in targets(&i, &sb, args.get(2))? {
+                show::ea(&mut w, &i, &sb, n)?;
+            }
+        }
         "extents" => {
-            let (first, last) = range(args.get(2))?;
-            for n in first..=last {
-                show::extents(&mut w, &i, &sb, n as u32)?;
+            for n in targets(&i, &sb, args.get(2))? {
+                show::extents(&mut w, &i, &sb, n)?;
             }
         }
         "map" | "blocks" => {
-            let (first, last) = range(args.get(2))?;
-            for n in first..=last {
-                show::blockmap(&mut w, &i, &sb, n as u32, args[0] == "blocks")?;
+            for n in targets(&i, &sb, args.get(2))? {
+                show::blockmap(&mut w, &i, &sb, n, args[0] == "blocks")?;
             }
         }
         "stat" => {
-            let (first, last) = range(args.get(2))?;
-            for n in first..=last {
-                show::stat(&mut w, &i, &sb, n as u32)?;
+            for n in targets(&i, &sb, args.get(2))? {
+                show::stat(&mut w, &i, &sb, n)?;
             }
         }
         _ => unreachable!(),
@@ -149,7 +164,7 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    let known = ["super", "groups", "csum", "stat", "map", "blocks", "extents", "ls"];
+    let known = ["super", "groups", "csum", "stat", "map", "blocks", "extents", "ls", "ea"];
     if !known.contains(&args[0].as_str()) {
         eprintln!("extv: unknown command: {}", args[0]);
         return ExitCode::from(3);
