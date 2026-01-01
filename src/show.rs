@@ -2,6 +2,7 @@ use crate::err::Result;
 use crate::csum;
 use crate::group;
 use crate::inode;
+use crate::dir;
 use crate::extent;
 use crate::map;
 use crate::img::Img;
@@ -288,5 +289,38 @@ pub fn extents(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
             if r.uninit { "Uninit" } else { "-" }
         )?;
     }
+    Ok(())
+}
+
+// One line per directory entry: the fields debugfs ls -l prints, with
+// the inode's own fields joined on, and the name escaped the way
+// debugfs escapes it.
+pub fn ls(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
+    let ino = inode::read(img, sb, num)?;
+    let d = dir::read(img, sb, &ino)?;
+    writeln!(w, "dir {}", num)?;
+    for e in &d.entries {
+        let child = inode::read(img, sb, e.inode)?;
+        writeln!(
+            w,
+            "entry {} {:o} {} {} {} {} {}",
+            e.inode,
+            child.mode,
+            e.file_type,
+            child.uid,
+            child.gid,
+            child.size,
+            dir::escape(&e.name)
+        )?;
+    }
+    writeln!(
+        w,
+        "summary entries {} blocks {} tails {} empty_slots {} inline {}",
+        d.entries.len(),
+        d.blocks,
+        d.tails,
+        d.empty_slots,
+        if d.inline { 1 } else { 0 }
+    )?;
     Ok(())
 }

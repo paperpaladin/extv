@@ -15,9 +15,14 @@ export PATH
 EXTV=${EXTV:-./target/release/extv}
 pass=0
 fail=0
+skip=0
 
 ok() { pass=$((pass + 1)); echo "ok   $1"; }
 no() { fail=$((fail + 1)); echo "FAIL $1"; }
+# A skip is loud and counted. It is for a comparison the oracle can
+# make and extv cannot yet, which is a different thing from a passing
+# test and must not be added to one.
+skipped() { skip=$((skip + 1)); echo "SKIP $1"; }
 
 # Shell functions have no local scope, so every variable in one of these
 # is prefixed. The first version assigned to "name", which is also the
@@ -99,8 +104,10 @@ helper() {
 	grep -v '^COUNT \|^DONE' "$scratch/helper.out"
 	_h_p=$(grep -c '^ok   ' "$scratch/helper.out")
 	_h_f=$(grep -c '^FAIL ' "$scratch/helper.out")
+	_h_s=$(grep -c '^SKIP ' "$scratch/helper.out")
 	pass=$((pass + _h_p))
 	fail=$((fail + _h_f))
+	skip=$((skip + _h_s))
 	grep '^COUNT ' "$scratch/helper.out" >> "$scratch/counts"
 	if [ "$_h_rc" != 0 ] || ! grep -q '^DONE' "$scratch/helper.out"; then
 		fail=$((fail + 1))
@@ -131,6 +138,12 @@ echo
 echo "--- block maps and extent trees against debugfs"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 	helper "$name" python3 "$here/cmp_blocks.py" "$EXTV" "$img" "$name" 600
+done < "$scratch/manifest"
+
+echo
+echo "--- directories against debugfs ls -l"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	helper "$name" python3 "$here/cmp_dirs.py" "$EXTV" "$img" "$name" 600
 done < "$scratch/manifest"
 
 echo
@@ -193,5 +206,6 @@ awk '{t[$2] += $3} END {for (k in t) printf "     %s %d\n", k, t[k]}' \
 	"$scratch/counts" | sort
 
 echo
+[ "$skip" = 0 ] || echo "$skip skipped, each named above"
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

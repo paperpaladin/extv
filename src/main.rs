@@ -11,6 +11,7 @@
 mod crc;
 mod csum;
 mod blockmap;
+mod dir;
 mod err;
 mod extent;
 mod group;
@@ -34,6 +35,8 @@ usage: extv COMMAND IMAGE [ARG]
   map IMAGE INODE        the blocks of an inode, with the metadata blocks
   blocks IMAGE INODE     the same, as a flat list of physical blocks
   extents IMAGE INODE    the extent tree, one row per node entry
+  ls IMAGE PATH|INODE    one directory, one entry per line
+                         (an inode range lists every directory in it)
 ";
 
 // Commands that take an inode number accept it bare or in the angle
@@ -74,6 +77,15 @@ fn range(a: Option<&String>) -> Result<(u64, u64)> {
     }
 }
 
+// A path or an inode number. A path is anything that starts with a
+// slash, which is unambiguous because an inode number cannot.
+fn inode_arg(img: &img::Img, sb: &sb::Sb, a: Option<&String>) -> Result<u32> {
+    match a {
+        Some(s) if s.starts_with('/') => dir::resolve(img, sb, s),
+        other => Ok(number(other)? as u32),
+    }
+}
+
 fn run(args: &[String]) -> Result<i32> {
     let image = &args[1];
     let mut i = img::Img::open(image)?;
@@ -88,6 +100,25 @@ fn run(args: &[String]) -> Result<i32> {
         "super" => show::super_block(&mut w, &i, &sb)?,
         "groups" => show::groups(&mut w, &i, &sb)?,
         "csum" => show::checksums(&mut w, &i, &sb)?,
+        "ls" => match args.get(2) {
+            // A range lists every directory in it and says nothing
+            // about the inodes that are not directories, because that
+            // is what the harness wants to ask. A single inode that is
+            // not a directory is an error, because that is a mistake.
+            Some(s) if s.contains('-') && !s.starts_with('/') => {
+                let (first, last) = range(args.get(2))?;
+                for n in first..=last {
+                    let ino = inode::read(&i, &sb, n as u32)?;
+                    if ino.in_use() && ino.is_dir() {
+                        show::ls(&mut w, &i, &sb, n as u32)?;
+                    }
+                }
+            }
+            other => {
+                let n = inode_arg(&i, &sb, other)?;
+                show::ls(&mut w, &i, &sb, n)?
+            }
+        },
         "extents" => {
             let (first, last) = range(args.get(2))?;
             for n in first..=last {
@@ -118,7 +149,7 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    let known = ["super", "groups", "csum", "stat", "map", "blocks", "extents"];
+    let known = ["super", "groups", "csum", "stat", "map", "blocks", "extents", "ls"];
     if !known.contains(&args[0].as_str()) {
         eprintln!("extv: unknown command: {}", args[0]);
         return ExitCode::from(3);

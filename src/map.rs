@@ -159,3 +159,22 @@ pub fn walk(img: &Img, sb: &Sb, ino: &Inode) -> Result<(Vec<Entry>, Counts)> {
     }
     Ok(b.finish())
 }
+
+// The data blocks of an inode in logical order, with the runs expanded
+// and the metadata blocks dropped. This is what a directory reader
+// wants: the block map walk reports an indirect block before the blocks
+// it points at, which is right for a block listing and wrong for
+// reading the contents.
+pub fn data_blocks(img: &Img, sb: &Sb, ino: &crate::inode::Inode) -> Result<Vec<(u64, u64)>> {
+    let (entries, _) = walk(img, sb, ino)?;
+    let mut out = Vec::new();
+    for e in entries {
+        if let Entry::Data { lo, hi, plo, .. } = e {
+            for k in 0..=(hi - lo) {
+                out.push((lo + k, plo + k));
+            }
+        }
+    }
+    out.sort_unstable();
+    Ok(out)
+}
