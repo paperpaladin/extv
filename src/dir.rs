@@ -52,12 +52,16 @@ fn parse_block(
     buf: &[u8],
     logical: u64,
     physical: u64,
+    start: usize,
     out: &mut DirRead,
 ) -> Result<()> {
     let v = V::new(buf, "directory block");
-    let bsize = sb.block_size as usize;
+    // The limit is the buffer, not the block size: an inline directory
+    // lives in a buffer of sixty bytes plus whatever the system.data
+    // attribute adds, and is parsed by this same loop.
+    let bsize = buf.len();
     let filetype = sb.has_incompat(INCOMPAT_FILETYPE);
-    let mut off = 0usize;
+    let mut off = start;
     while off + 8 <= bsize {
         let inode = v.u32(off)?;
         let rec_len = v.u16(off + 4)?;
@@ -140,14 +144,61 @@ pub fn read(img: &Img, sb: &Sb, ino: &Inode) -> Result<DirRead> {
     }
     if ino.has_inline_data() {
         out.inline = true;
+        read_inline(img, sb, ino, &mut out)?;
         return Ok(out);
     }
     for (logical, physical) in map::data_blocks(img, sb, ino)? {
         let buf = img.block(physical)?;
         out.blocks += 1;
-        parse_block(sb, &buf, logical, physical, &mut out)?;
+        parse_block(sb, &buf, logical, physical, 0, &mut out)?;
     }
     Ok(out)
+}
+
+// An inline directory keeps its entries in the inode, in the sixty
+// bytes that would otherwise hold block pointers, and spills the rest
+// into the system.data extended attribute. The two pieces are one
+// contiguous area and an entry may straddle the join, so they are
+// concatenated before anything is parsed.
+//
+// The first four bytes are the parent's inode number, and the "." and
+// ".." entries are not stored at all. debugfs synthesises them with a
+// file type of 0, and so does this, because a directory listing that
+// is missing its own two entries is not the same listing.
+fn read_inline(img: &Img, sb: &Sb, ino: &Inode, out: &mut DirRead) -> Result<()> {
+    let attrs = crate::xattr::read(img, sb, ino)?;
+    let mut buf = ino.block.to_vec();
+    if let Some(tail) = crate::xattr::inline_tail(&attrs) {
+        buf.extend_from_slice(&tail.value);
+    }
+    if buf.len() < 4 {
+        return bad("inline directory is shorter than its parent pointer");
+    }
+    if (ino.size as usize) < buf.len() {
+        buf.truncate(ino.size as usize);
+    }
+    let parent = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+    out.entries.push(DirEntry {
+        inode: ino.num,
+        rec_len: 0,
+        name_len: 1,
+        file_type: 0,
+        name: b".".to_vec(),
+        logical: 0,
+        physical: 0,
+        offset: 0,
+    });
+    out.entries.push(DirEntry {
+        inode: parent,
+        rec_len: 0,
+        name_len: 2,
+        file_type: 0,
+        name: b"..".to_vec(),
+        logical: 0,
+        physical: 0,
+        offset: 0,
+    });
+    parse_block(sb, &buf, 0, 0, 4, out)
 }
 
 // Resolve a path to an inode number, one component at a time from the

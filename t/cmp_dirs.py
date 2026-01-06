@@ -83,15 +83,8 @@ def main():
     bad = []
     nent = 0
     ndir = 0
-    skipped = 0
     for n in sorted(want):
         w, g = want[n], got.get(n)
-        # inline_data directories keep their entries in the inode and
-        # in an extended attribute. extv does not read them yet, so the
-        # comparison is skipped out loud rather than counted as a pass.
-        if summaries.get(n, {}).get("inline"):
-            skipped += 1
-            continue
         if g is None:
             bad.append("inode %d: debugfs lists it as a directory, extv does not"
                        % n)
@@ -114,8 +107,6 @@ def main():
             bad.append("inode %d: extv lists it as a directory, debugfs does not"
                        % n)
 
-    if skipped:
-        print("SKIP %s ls: %d inline_data directories, not implemented" % (NAME, skipped))
     for b in bad[:8]:
         print("FAIL %s ls %s" % (NAME, b))
     if not bad:

@@ -56,6 +56,14 @@ def main():
         f.seek(512 * 1024)
         f.write(b"back" * 100)
 
+    # 61 and 100 bytes. With inline_data an inode holds sixty bytes of
+    # file content and puts the rest in a system.data attribute, so
+    # these two are the only files in the corpus that reach the join
+    # between the two halves. mke2fs will not do the same for a
+    # directory: at five entries it gives up and allocates a block.
+    write(os.path.join(root, "inline61"), b"q" * 61)
+    write(os.path.join(root, "inline100"), b"q" * 100)
+
     os.makedirs(os.path.join(root, "emptydir"), exist_ok=True)
     deep = os.path.join(root, "nested", "a", "b", "c")
     os.makedirs(deep, exist_ok=True)

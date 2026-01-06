@@ -198,7 +198,7 @@ echo
 echo "--- paths reached by the corpus"
 for path in path_ind path_dind path_tind path_etb path_inline \
             fast_symlinks extent_uninit extent_rows_deep \
-            ea_in_inode ea_in_block dirent_tails; do
+            ea_in_inode ea_in_block dirent_tails dirs_inline; do
 	n=$(awk -v k="$path" '$2 == k {t += $3} END {print t + 0}' "$scratch/counts")
 	if [ "$n" -gt 0 ]; then
 		ok "corpus reaches $path ($n times)"
