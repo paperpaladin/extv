@@ -348,3 +348,55 @@ pub fn ea(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
     }
     Ok(())
 }
+
+// The contents of one file, written as bytes. This is the end to end
+// read: the block map or the extent tree, the holes, the inline data
+// and the size all have to be right together, and debugfs dump
+// produces the same bytes from an independent implementation.
+pub fn cat(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
+    let ino = inode::read(img, sb, num)?;
+    if ino.has_inline_data() {
+        let attrs = xattr::read(img, sb, &ino)?;
+        let mut buf = ino.block.to_vec();
+        if let Some(tail) = xattr::inline_tail(&attrs) {
+            buf.extend_from_slice(&tail.value);
+        }
+        buf.truncate(ino.size as usize);
+        w.write_all(&buf)?;
+        return Ok(());
+    }
+    if ino.is_fast_symlink(sb.block_size) {
+        let n = (ino.size as usize).min(60);
+        w.write_all(&ino.block[..n])?;
+        return Ok(());
+    }
+    let blocks = map::data_blocks(img, sb, &ino)?;
+    let bsize = sb.block_size as u64;
+    let mut left = ino.size;
+    let mut logical = 0u64;
+    let zeros = vec![0u8; bsize as usize];
+    let mut iter = blocks.into_iter().peekable();
+    while left > 0 {
+        let want = left.min(bsize) as usize;
+        // A hole reads as zeroes. The map holds only the blocks that
+        // exist, so anything it skips is a hole and not an error.
+        while let Some(&(lo, _)) = iter.peek() {
+            if lo < logical {
+                iter.next();
+            } else {
+                break;
+            }
+        }
+        match iter.peek() {
+            Some(&(lo, phys)) if lo == logical => {
+                let b = img.block(phys)?;
+                w.write_all(&b[..want])?;
+                iter.next();
+            }
+            _ => w.write_all(&zeros[..want])?,
+        }
+        left -= want as u64;
+        logical += 1;
+    }
+    Ok(())
+}

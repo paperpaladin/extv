@@ -38,6 +38,7 @@ usage: extv COMMAND IMAGE [ARG]
   extents IMAGE INODE    the extent tree, one row per node entry
   ls IMAGE PATH|INODE    one directory, one entry per line
   ea IMAGE PATH|INODE    the extended attributes of one inode
+  cat IMAGE PATH|INODE   the contents of one file, as bytes
                          (an inode range lists every directory in it)
 ";
 
@@ -132,6 +133,11 @@ fn run(args: &[String]) -> Result<i32> {
                 show::ls(&mut w, &i, &sb, n)?
             }
         },
+        "cat" => {
+            for n in targets(&i, &sb, args.get(2))? {
+                show::cat(&mut w, &i, &sb, n)?;
+            }
+        }
         "ea" => {
             for n in targets(&i, &sb, args.get(2))? {
                 show::ea(&mut w, &i, &sb, n)?;
@@ -164,7 +170,7 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    let known = ["super", "groups", "csum", "stat", "map", "blocks", "extents", "ls", "ea"];
+    let known = ["super", "groups", "csum", "stat", "map", "blocks", "extents", "ls", "ea", "cat"];
     if !known.contains(&args[0].as_str()) {
         eprintln!("extv: unknown command: {}", args[0]);
         return ExitCode::from(3);

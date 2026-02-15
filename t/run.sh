@@ -147,6 +147,12 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- whole files against debugfs dump"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	helper "$name" python3 "$here/cmp_cat.py" "$EXTV" "$img" "$name"
+done < "$scratch/manifest"
+
+echo
 echo "--- extended attributes against debugfs ea_list and ea_get"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 	helper "$name" python3 "$here/cmp_ea.py" "$EXTV" "$img" "$name" 600
