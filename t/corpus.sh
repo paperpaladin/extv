@@ -125,21 +125,34 @@ mk ext4-4096-256-htree  64M  ext4 4096 256 htree,extent,64bit,csum
 mk ext4-1024-256-manygroups 256M ext4 1024 256 manygroups,extent,64bit,csum
 mk ext4-4096-256-big    512M ext4 4096 256 extent,64bit,csum
 
-# The two non-default hash functions. tune2fs sets the algorithm and
-# e2fsck -fD then rebuilds every index with it.
-for alg in tea legacy; do
-	name=ext4-1024-256-htree-$alg
+# The hash functions, and the signedness the filesystem records. The
+# algorithm comes from tune2fs and the signed or unsigned flag from a
+# direct superblock edit; e2fsck -fD then rebuilds every index with
+# that combination. mke2fs on this machine writes signed_directory_hash
+# and nothing else, so without the edit half the hash code would never
+# run.
+for spec in tea,1 legacy,1 half_md4,2 tea,2 legacy,2; do
+	alg=${spec%,*}
+	flagval=${spec#*,}
+	case $flagval in
+	1) sign=signed ;;
+	*) sign=unsigned ;;
+	esac
+	name=ext4-1024-256-htree-$alg-$sign
 	img=$dir/$name.img
 	rm -f "$img"
 	truncate -s 64M "$img"
 	mke2fs -q -F -t ext4 -b 1024 -I 256 -d "$src" "$img" >&2 || exit 1
 	tune2fs -E hash_alg=$alg "$img" >/dev/null || exit 1
+	debugfs -w -R "ssv flags $flagval" "$img" >/dev/null 2>&1
 	e2fsck -fDy "$img" >/dev/null 2>&1
 	if ! e2fsck -fn "$img" >"$dir/fsck.out" 2>&1; then
 		echo "corpus: $name is not clean when built" >&2
+		sed 's/^/  /' "$dir/fsck.out" >&2
 		exit 1
 	fi
-	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$img" ext4 1024 256 "htree,$alg" >> "$list"
+	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$img" ext4 1024 256 \
+		"htree,$alg,$sign" >> "$list"
 	echo "corpus: $name" >&2
 done
 

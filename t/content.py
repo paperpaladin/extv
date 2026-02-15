@@ -75,6 +75,15 @@ def main():
     os.makedirs(many, exist_ok=True)
     for i in range(500):
         write(os.path.join(many, "entry%04d" % i), b"%d\n" % i)
+    # Twenty names with a byte above 0x7f, inside the directory that
+    # becomes hash indexed. Without them the signed and the unsigned
+    # hash functions cannot be told apart: they differ only on a byte
+    # that is negative when read through a signed char, and every other
+    # name in the corpus is ASCII.
+    for i in range(20):
+        write(os.path.join(many, os.fsdecode(b"h\xc3\xa9\xff%02d" % i)),
+              b"not ascii\n")
+
     # Names at the edges: one character, the 255-byte maximum, and names
     # whose bytes are not ASCII, because name_len is a byte count and a
     # reader that counts characters gets those wrong.

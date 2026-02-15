@@ -131,6 +131,17 @@ fn parse_block(
     Ok(())
 }
 
+// The hash tree reader parses leaf blocks with the same loop.
+pub fn parse_block_pub(
+    sb: &Sb,
+    buf: &[u8],
+    logical: u64,
+    physical: u64,
+    out: &mut DirRead,
+) -> Result<()> {
+    parse_block(sb, buf, logical, physical, 0, out)
+}
+
 pub fn read(img: &Img, sb: &Sb, ino: &Inode) -> Result<DirRead> {
     let mut out = DirRead {
         entries: Vec::new(),

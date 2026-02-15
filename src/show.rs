@@ -3,6 +3,7 @@ use crate::csum;
 use crate::group;
 use crate::inode;
 use crate::dir;
+use crate::dx;
 use crate::extent;
 use crate::map;
 use crate::img::Img;
@@ -397,6 +398,65 @@ pub fn cat(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
         }
         left -= want as u64;
         logical += 1;
+    }
+    Ok(())
+}
+
+// The hash index of one directory, with the hash of every name
+// recomputed from the name itself rather than read from the tree.
+// debugfs htree_dump prints both, so each name is one comparison
+// against somebody else's implementation of the hash.
+pub fn htree(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
+    let ino = inode::read(img, sb, num)?;
+    if !ino.is_dir() || !dx::is_indexed(&ino) {
+        return Ok(());
+    }
+    let (root, visits) = dx::read(img, sb, &ino)?;
+    writeln!(w, "htree {}", num)?;
+    writeln!(
+        w,
+        "root reserved_zero {} hash_version {} info_length {} indirect_levels {} flags {}",
+        root.reserved_zero, root.hash_version, root.info_length, root.indirect_levels,
+        root.flags
+    )?;
+    writeln!(
+        w,
+        "hash effective_version {}",
+        dx::effective_version(sb, &root)
+    )?;
+    for v in &visits {
+        match v {
+            dx::Visit::Node(n) => {
+                writeln!(
+                    w,
+                    "node count {} limit {} checksum {}",
+                    n.count,
+                    n.limit,
+                    match n.checksum {
+                        Some(c) => format!("0x{:08x}", c),
+                        None => "-".to_string(),
+                    }
+                )?;
+                for (i, (h, b)) in n.entries.iter().enumerate() {
+                    writeln!(w, "nodeentry {} 0x{:08x} {}", i, h, b)?;
+                }
+            }
+            dx::Visit::Leaf(l) => {
+                writeln!(w, "leaf {} {}", l.logical, l.physical)?;
+                for (ino_num, name, rec_len) in &l.names {
+                    let (h, minor) = dx::name_hash(sb, &root, name);
+                    writeln!(
+                        w,
+                        "name {} 0x{:08x} 0x{:08x} {} {}",
+                        ino_num,
+                        h,
+                        minor,
+                        rec_len,
+                        dir::escape(name)
+                    )?;
+                }
+            }
+        }
     }
     Ok(())
 }

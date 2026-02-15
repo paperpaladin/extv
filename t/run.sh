@@ -65,7 +65,21 @@ for tool in mke2fs dumpe2fs debugfs e2fsck tune2fs; do
 done
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/extv.XXXXXX") || exit 2
-trap 'rm -rf "$scratch"' EXIT INT TERM
+# The corpus is about 3 GB, so it goes away at the end. With
+# EXTV_KEEP_FAILED=1 a failing run leaves it behind instead: a
+# disagreement with an oracle is about one image, and rebuilding the
+# corpus to look at it rebuilds a different one if anything in the
+# build is not deterministic. That is exactly the case a loop chasing
+# an intermittent failure cannot afford to lose.
+cleanup() {
+	if [ "${EXTV_KEEP_FAILED:-0}" != 0 ] && [ "$fail" != 0 ]; then
+		echo "corpus kept at $scratch"
+		return
+	fi
+	rm -rf "$scratch"
+}
+trap cleanup EXIT
+trap 'rm -rf "$scratch"; exit 130' INT TERM
 
 echo "--- oracles: $(dumpe2fs -V 2>&1 | head -1)"
 echo "--- building the corpus in $scratch"
@@ -147,6 +161,12 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- hash trees against debugfs htree_dump"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	helper "$name" python3 "$here/cmp_htree.py" "$EXTV" "$img" "$name" 600
+done < "$scratch/manifest"
+
+echo
 echo "--- whole files against debugfs dump"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 	helper "$name" python3 "$here/cmp_cat.py" "$EXTV" "$img" "$name"
@@ -204,7 +224,9 @@ echo
 echo "--- paths reached by the corpus"
 for path in path_ind path_dind path_tind path_etb path_inline \
             fast_symlinks extent_uninit extent_rows_deep \
-            ea_in_inode ea_in_block dirent_tails dirs_inline; do
+            ea_in_inode ea_in_block dirent_tails dirs_inline \
+            htree_levels htree_version_0 htree_version_1 htree_version_2 \
+            htree_version_3 htree_version_4 htree_version_5; do
 	n=$(awk -v k="$path" '$2 == k {t += $3} END {print t + 0}' "$scratch/counts")
 	if [ "$n" -gt 0 ]; then
 		ok "corpus reaches $path ($n times)"
