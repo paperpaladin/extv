@@ -84,6 +84,17 @@ pub const RO_BIGALLOC: u32 = 0x0200;
 pub const RO_HUGE_FILE: u32 = 0x0008;
 pub const RO_LARGE_FILE: u32 = 0x0002;
 
+// The journal superblock carries a UUID too, in the same layout, so
+// the formatting lives outside the Sb.
+pub fn uuid_string(u: &[u8; 16]) -> String {
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-\
+         {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11], u[12],
+        u[13], u[14], u[15]
+    )
+}
+
 pub struct Sb {
     pub raw: Vec<u8>,
     pub inodes_count: u32,
@@ -355,13 +366,7 @@ impl Sb {
     }
 
     pub fn uuid_string(&self) -> String {
-        let u = &self.uuid;
-        format!(
-            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-\
-             {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-            u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11], u[12],
-            u[13], u[14], u[15]
-        )
+        uuid_string(&self.uuid)
     }
 
     pub fn hash_seed_string(&self) -> String {

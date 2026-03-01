@@ -66,6 +66,20 @@ mk() {
 		debugfs -w -R "fallocate /b4096 20 29" "$img" >/dev/null 2>&1
 		;;
 	esac
+	# A journal that has been used. Nothing here mounts anything, so
+	# the journal of a fresh image has no features, sequence 1 and
+	# start 0, and the feature decode would never run. debugfs can
+	# open the journal and commit a transaction through it, which
+	# sets journal_64bit, which is the journal's own copy of the
+	# filesystem's 64bit feature, so the image has to be a 64bit one
+	# for anything to appear. It is the only journal state reachable
+	# without a mount, and the README says so.
+	case ",$tags," in
+	*,jused,*)
+		printf 'journal_open\nmkdir /jdir\njournal_close\n' > "$dir/jcmds"
+		debugfs -w -f "$dir/jcmds" "$img" >/dev/null 2>&1
+		;;
+	esac
 	# An empty directory block, which is the only place a rec_len of a
 	# whole block occurs. expand_dir adds a block to a directory and
 	# leaves it empty, which is legal and which e2fsck -fn accepts.
@@ -106,7 +120,7 @@ mk ext3-1024-128        64M  ext3 1024 128 journal
 mk ext3-2048-256        64M  ext3 2048 256 journal
 mk ext3-4096-256        64M  ext3 4096 256 journal
 mk ext4-1024-256        64M  ext4 1024 256 journal,extent,64bit,csum
-mk ext4-2048-256        64M  ext4 2048 256 journal,extent,64bit,csum
+mk ext4-2048-256        64M  ext4 2048 256 journal,jused,extent,64bit,csum
 mk ext4-4096-256        64M  ext4 4096 256 journal,extent,64bit,csum
 mk ext4-4096-128        64M  ext4 4096 128 extent,64bit,csum
 mk ext4-1024-256-nojournal 64M ext4 1024 256 extent,64bit,csum -O ^has_journal

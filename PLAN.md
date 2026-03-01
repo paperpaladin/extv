@@ -119,7 +119,7 @@ its superblock and reporting what state it is in.
 - [x] Path resolution, so `ls` takes a path rather than an inode number.
     why: it is how the tool is actually used, and it exercises the directory
       reader at every level of the tree.
-- [ ] The 64KiB rec_len encoding for 65536-byte blocks.
+- [x] The 64KiB rec_len encoding for 65536-byte blocks.
     why: a documented special case that no default corpus reaches.
 - [x] Directory entry checksums (metadata_csum) and the tail entry.
     why: the tail looks like an entry with inode 0 and has to be skipped, not
@@ -145,7 +145,7 @@ its superblock and reporting what state it is in.
 - [x] inline_data: file and directory contents inside the inode.
     why: it changes where directory entries live, and a reader that assumes
       blocks reports an empty directory.
-- [ ] Journal superblock: read the inode, report sequence, start and state.
+- [x] Journal superblock: read the inode, report sequence, start and state.
     why: whether the image needs recovery is a fact e2fsck also reports.
 - [ ] Block bitmap check: every block the inodes claim, against the bitmap.
     why: the first real consistency check, and the one e2fsck's pass 5 does.

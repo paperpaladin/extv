@@ -118,6 +118,14 @@ impl<'a> V<'a> {
         Ok(u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
     }
 
+    // JBD2 is big-endian, alone in an image that is little-endian
+    // everywhere else, so this accessor exists for the journal and for
+    // nothing else.
+    pub fn u32be(&self, o: usize) -> Result<u32> {
+        let s = self.bytes(o, 4)?;
+        Ok(u32::from_be_bytes([s[0], s[1], s[2], s[3]]))
+    }
+
     pub fn u64(&self, o: usize) -> Result<u64> {
         let s = self.bytes(o, 8)?;
         Ok(u64::from_le_bytes([

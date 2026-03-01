@@ -2,6 +2,7 @@ use crate::err::Result;
 use crate::csum;
 use crate::group;
 use crate::inode;
+use crate::journal;
 use crate::dir;
 use crate::dx;
 use crate::extent;
@@ -459,5 +460,55 @@ pub fn htree(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+// The journal superblock, one key and one value per line. dumpe2fs
+// prints the same handful of fields at the end of its output, which is
+// what the comparison reads. An image with no journal prints one line
+// saying so rather than nothing, because nothing is also what a broken
+// reader prints.
+pub fn journal(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
+    let j = match journal::read(img, sb)? {
+        None => {
+            writeln!(w, "journal none")?;
+            return Ok(());
+        }
+        Some(j) => j,
+    };
+    writeln!(w, "journal inode {}", j.inum)?;
+    writeln!(w, "block_type {}", j.block_type)?;
+    writeln!(w, "blocksize {}", j.blocksize)?;
+    writeln!(w, "blocks {}", j.maxlen)?;
+    writeln!(w, "size_k {}", (j.maxlen as u64 * j.blocksize as u64) / 1024)?;
+    writeln!(w, "first {}", j.first)?;
+    writeln!(w, "sequence {}", j.sequence)?;
+    writeln!(w, "start {}", j.start)?;
+    writeln!(w, "errno {}", j.errno)?;
+    writeln!(w, "max_transaction {}", j.max_transaction)?;
+    writeln!(w, "max_trans_data {}", j.max_trans_data)?;
+    writeln!(w, "fast_commit_blocks {}", j.num_fc_blks)?;
+    writeln!(w, "nr_users {}", j.nr_users)?;
+    writeln!(w, "uuid {}", crate::sb::uuid_string(&j.uuid))?;
+    writeln!(w, "checksum_type {}", j.checksum_type)?;
+    writeln!(w, "head {}", j.head)?;
+    let mut f = journal::names(j.feature_compat, journal::COMPAT_FLAGS);
+    f.extend(journal::names(j.feature_incompat, journal::INCOMPAT_FLAGS));
+    writeln!(
+        w,
+        "features {}",
+        if f.is_empty() {
+            "(none)".to_string()
+        } else {
+            f.join(" ")
+        }
+    )?;
+    writeln!(w, "unknown_compat 0x{:08x}", j.feature_compat & !0x1)?;
+    writeln!(
+        w,
+        "unknown_incompat 0x{:08x}",
+        j.feature_incompat & !0x3f
+    )?;
+    writeln!(w, "ro_compat 0x{:08x}", j.feature_ro_compat)?;
     Ok(())
 }

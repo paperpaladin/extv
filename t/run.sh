@@ -185,6 +185,12 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- the journal superblock against dumpe2fs"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	helper "$name" python3 "$here/cmp_journal.py" "$EXTV" "$img" "$name"
+done < "$scratch/manifest"
+
+echo
 echo "--- metadata checksums recomputed"
 : > "$scratch/forms"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
@@ -225,7 +231,7 @@ echo "--- paths reached by the corpus"
 for path in path_ind path_dind path_tind path_etb path_inline \
             fast_symlinks extent_uninit extent_rows_deep \
             ea_in_inode ea_in_block dirent_tails dirs_inline \
-            dirent_wide_rec_len \
+            dirent_wide_rec_len journal_none journal_features \
             htree_levels htree_version_0 htree_version_1 htree_version_2 \
             htree_version_3 htree_version_4 htree_version_5; do
 	n=$(awk -v k="$path" '$2 == k {t += $3} END {print t + 0}' "$scratch/counts")
