@@ -66,6 +66,14 @@ mk() {
 		debugfs -w -R "fallocate /b4096 20 29" "$img" >/dev/null 2>&1
 		;;
 	esac
+	# An empty directory block, which is the only place a rec_len of a
+	# whole block occurs. expand_dir adds a block to a directory and
+	# leaves it empty, which is legal and which e2fsck -fn accepts.
+	case ",$tags," in
+	*,bigblock,*)
+		debugfs -w -R "expand_dir /emptydir" "$img" >/dev/null 2>&1
+		;;
+	esac
 	# Extended attributes. A short value fits in the inode when the inode
 	# is 256 bytes and has nowhere to go but a block when it is 128, so
 	# both paths are covered by the same two commands across the corpus.
@@ -122,6 +130,23 @@ mk ext4-1024-256-metabg 64M  ext4 1024 256 metabg,extent,64bit,csum \
 mk ext4-1024-256-flex1  64M  ext4 1024 256 extent,64bit,csum -G 1
 mk ext4-1024-256-htree  64M  ext4 1024 256 htree,extent,64bit,csum
 mk ext4-4096-256-htree  64M  ext4 4096 256 htree,extent,64bit,csum
+# 65536-byte blocks. mke2fs warns that the block is too big for a
+# machine with 4096-byte pages and builds the image anyway, and
+# dumpe2fs, debugfs and e2fsck all read it, so it is an oracle-backed
+# image rather than a hand-forged one. It is the only block size where
+# a directory entry can be longer than the sixteen-bit rec_len field,
+# and the only one where a block offset needs more than sixteen bits.
+#
+# The empty block is the point of the second of the two. A whole-block
+# rec_len only occurs in a directory block with nothing in it, and
+# debugfs expand_dir is the way to get one without a mount. With
+# metadata_csum the block is not empty: the twelve-byte checksum tail
+# takes rec_len to 65524, which fits. So the image that reaches the
+# encoding is the one without metadata_csum, and the one with it is
+# kept as the other half of the pair.
+mk ext4-65536-256 128M ext4 65536 256 bigblock,extent,64bit,csum
+mk ext4-65536-256-nocsum 128M ext4 65536 256 bigblock,extent,64bit,nocsum \
+	-O ^metadata_csum
 mk ext4-1024-256-manygroups 256M ext4 1024 256 manygroups,extent,64bit,csum
 mk ext4-4096-256-big    512M ext4 4096 256 extent,64bit,csum
 

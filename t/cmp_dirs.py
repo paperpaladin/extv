@@ -118,6 +118,8 @@ def main():
           % sum(v.get("tails", 0) for v in summaries.values()))
     print("COUNT dirs_inline %d"
           % sum(v.get("inline", 0) for v in summaries.values()))
+    print("COUNT dirent_wide_rec_len %d"
+          % sum(v.get("wide_rec_len", 0) for v in summaries.values()))
     print("DONE")
 
 

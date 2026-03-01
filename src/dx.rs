@@ -31,7 +31,7 @@ pub struct Node {
 pub struct Leaf {
     pub logical: u64,
     pub physical: u64,
-    pub names: Vec<(u32, Vec<u8>, u16)>,
+    pub names: Vec<(u32, Vec<u8>, u32)>,
 }
 
 pub enum Visit {
@@ -149,6 +149,7 @@ fn descend(
             blocks: 0,
             tails: 0,
             empty_slots: 0,
+            wide_rec_len: 0,
             inline: false,
         };
         dir::parse_block_pub(sb, &buf, logical, physical, &mut d)?;

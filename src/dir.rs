@@ -12,7 +12,7 @@ pub const DIRENT_TAIL_TYPE: u8 = 0xDE;
 
 pub struct DirEntry {
     pub inode: u32,
-    pub rec_len: u16,
+    pub rec_len: u32,
     pub name_len: u16,
     pub file_type: u8,
     pub name: Vec<u8>,
@@ -26,6 +26,12 @@ pub struct DirRead {
     pub blocks: u64,
     pub tails: u64,
     pub empty_slots: u64,
+    // How many entries were a whole 65536-byte block long, which is
+    // the only rec_len the sixteen-bit field cannot hold. The suite
+    // asserts this is not zero over the corpus: an image with a
+    // 65536-byte block whose directories all happen to fit their
+    // entries inside one proves nothing about the encoding.
+    pub wide_rec_len: u64,
     pub inline: bool,
 }
 
@@ -39,6 +45,28 @@ pub fn file_type_name(t: u8) -> &'static str {
         6 => "socket",
         7 => "symlink",
         _ => "unknown",
+    }
+}
+
+// A rec_len of a whole 65536-byte block does not fit in the sixteen
+// bits the field has. ext4 spends the two low bits on it, which are
+// free because every rec_len is a multiple of four: a stored 0xffff
+// (or 0) means one whole block, and otherwise bits 0 and 1 are bits 16
+// and 17 of the length. The encoding is live only when the block size
+// is 65536, and no other block size can reach it, so every other image
+// takes the field as it stands.
+//
+// mke2fs warns that a 65536-byte block is too big for a machine with
+// 4096-byte pages and builds the image anyway, which is how the corpus
+// gets one. Without the decode extv refuses a valid image, saying the
+// rec_len 65535 is not a multiple of four.
+pub fn rec_len_from_disk(raw: u16, block_size: u32) -> u32 {
+    if block_size < 65536 {
+        raw as u32
+    } else if raw == 0xffff || raw == 0 {
+        block_size
+    } else {
+        ((raw & 0xfffc) as u32) | (((raw & 3) as u32) << 16)
     }
 }
 
@@ -64,7 +92,11 @@ fn parse_block(
     let mut off = start;
     while off + 8 <= bsize {
         let inode = v.u32(off)?;
-        let rec_len = v.u16(off + 4)?;
+        let raw_rec_len = v.u16(off + 4)?;
+        let rec_len = rec_len_from_disk(raw_rec_len, sb.block_size);
+        if rec_len as usize > u16::MAX as usize {
+            out.wide_rec_len += 1;
+        }
         let (name_len, file_type) = if filetype {
             (v.u8(off + 6)? as u16, v.u8(off + 7)?)
         } else {
@@ -148,6 +180,7 @@ pub fn read(img: &Img, sb: &Sb, ino: &Inode) -> Result<DirRead> {
         blocks: 0,
         tails: 0,
         empty_slots: 0,
+        wide_rec_len: 0,
         inline: false,
     };
     if !ino.is_dir() {

@@ -225,6 +225,7 @@ echo "--- paths reached by the corpus"
 for path in path_ind path_dind path_tind path_etb path_inline \
             fast_symlinks extent_uninit extent_rows_deep \
             ea_in_inode ea_in_block dirent_tails dirs_inline \
+            dirent_wide_rec_len \
             htree_levels htree_version_0 htree_version_1 htree_version_2 \
             htree_version_3 htree_version_4 htree_version_5; do
 	n=$(awk -v k="$path" '$2 == k {t += $3} END {print t + 0}' "$scratch/counts")

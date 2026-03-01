@@ -317,11 +317,12 @@ pub fn ls(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
     }
     writeln!(
         w,
-        "summary entries {} blocks {} tails {} empty_slots {} inline {}",
+        "summary entries {} blocks {} tails {} empty_slots {} wide_rec_len {} inline {}",
         d.entries.len(),
         d.blocks,
         d.tails,
         d.empty_slots,
+        d.wide_rec_len,
         if d.inline { 1 } else { 0 }
     )?;
     Ok(())
