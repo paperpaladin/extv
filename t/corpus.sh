@@ -80,6 +80,39 @@ mk() {
 		debugfs -w -f "$dir/jcmds" "$img" >/dev/null 2>&1
 		;;
 	esac
+	# Garbage in the inode bitmap of a group marked INODE_UNINIT.
+	# That bitmap is not read by anything: e2fsck still calls the
+	# image clean and dumpe2fs still prints the free inode list it
+	# computes from the group's layout rather than the bytes on
+	# disk. Without an image like this, a reader that ignored the
+	# INODE_UNINIT flag agreed with the oracle anyway, because
+	# mke2fs leaves those bitmap blocks zeroed, which is the same
+	# answer. It was a surviving mutant until this went in.
+	case ",$tags," in
+	*,uninitgarbage,*)
+		ug_blk=$(dumpe2fs "$img" 2>/dev/null |
+			awk '/^Group 1:/ {f = 1} f && /Inode bitmap at/ {print $4; exit}')
+		if [ -z "$ug_blk" ]; then
+			echo "corpus: $name has no group 1 inode bitmap" >&2
+			exit 1
+		fi
+		head -c "$bsize" /dev/zero | tr '\000' '\377' > "$dir/ff.bin"
+		dd if="$dir/ff.bin" of="$img" bs="$bsize" seek="$ug_blk" \
+			count=1 conv=notrunc status=none || exit 1
+		;;
+	esac
+	# A hole in the middle of the allocated blocks. Without one every
+	# free list in the corpus is a single run reaching the end of the
+	# group, and dumpe2fs prints a one-block run as a bare number and
+	# a longer one as a range, so one of the two spellings would never
+	# be compared. On the bigalloc image the same deletion frees a
+	# single cluster, which dumpe2fs prints as a range because the
+	# cluster is four blocks wide.
+	case ",$tags," in
+	*,gap,*)
+		debugfs -w -R "rm /b1025" "$img" >/dev/null 2>&1
+		;;
+	esac
 	# An empty directory block, which is the only place a rec_len of a
 	# whole block occurs. expand_dir adds a block to a directory and
 	# leaves it empty, which is legal and which e2fsck -fn accepts.
@@ -112,14 +145,14 @@ python3 -c "import sys; sys.stdout.write('v' * 400)" > "$dir/eabig"
 
 mk ext2-1024-128        64M  ext2 1024 128 plain
 mk ext2-2048-128        64M  ext2 2048 128 plain
-mk ext2-4096-256        64M  ext2 4096 256 plain
+mk ext2-4096-256        64M  ext2 4096 256 plain,gap
 mk ext2-1024-256-nosparse 64M ext2 1024 256 nosparse -O ^sparse_super,^resize_inode
 mk ext2-1024-128-nodirindex 64M ext2 1024 128 nodirindex -O ^dir_index
 mk ext2-1024-128-htree  64M  ext2 1024 128 htree
 mk ext3-1024-128        64M  ext3 1024 128 journal
 mk ext3-2048-256        64M  ext3 2048 256 journal
 mk ext3-4096-256        64M  ext3 4096 256 journal
-mk ext4-1024-256        64M  ext4 1024 256 journal,extent,64bit,csum
+mk ext4-1024-256        64M  ext4 1024 256 journal,uninitgarbage,extent,64bit,csum
 mk ext4-2048-256        64M  ext4 2048 256 journal,jused,extent,64bit,csum
 mk ext4-4096-256        64M  ext4 4096 256 journal,extent,64bit,csum
 mk ext4-4096-128        64M  ext4 4096 128 extent,64bit,csum
@@ -136,7 +169,7 @@ mk ext4-1024-256-uninitbg 64M ext4 1024 256 uninitbg,extent,64bit \
 	-O ^metadata_csum,uninit_bg
 mk ext4-1024-256-uninitbg-32 64M ext4 1024 256 uninitbg,extent \
 	-O ^metadata_csum,^64bit,uninit_bg
-mk ext4-4096-256-bigalloc 64M ext4 4096 256 bigalloc,extent,64bit,csum \
+mk ext4-4096-256-bigalloc 64M ext4 4096 256 bigalloc,gap,extent,64bit,csum \
 	-O bigalloc -C 16384
 mk ext4-1024-256-inline 64M  ext4 1024 256 inline,extent,64bit,csum -O inline_data
 mk ext4-1024-256-metabg 64M  ext4 1024 256 metabg,extent,64bit,csum \

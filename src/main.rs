@@ -10,6 +10,7 @@
 
 mod crc;
 mod csum;
+mod bitmap;
 mod blockmap;
 mod dir;
 mod dx;
@@ -43,6 +44,7 @@ usage: extv COMMAND IMAGE [ARG]
   htree IMAGE PATH|INODE the hash index of a directory, if it has one
   ea IMAGE PATH|INODE    the extended attributes of one inode
   journal IMAGE          the journal superblock, if the image has one
+  bitmaps IMAGE          the free block and inode runs, one group per line
   cat IMAGE PATH|INODE   the contents of one file, as bytes
                          (an inode range lists every directory in it)
 ";
@@ -144,6 +146,7 @@ fn run(args: &[String]) -> Result<i32> {
             }
         }
         "journal" => show::journal(&mut w, &i, &sb)?,
+        "bitmaps" => show::bitmaps(&mut w, &i, &sb)?,
         "cat" => {
             for n in targets(&i, &sb, args.get(2))? {
                 show::cat(&mut w, &i, &sb, n)?;
@@ -181,7 +184,7 @@ fn main() -> ExitCode {
         print!("{}", USAGE);
         return ExitCode::from(3);
     }
-    let known = ["super", "groups", "csum", "stat", "map", "blocks", "extents", "ls", "ea", "cat", "htree", "journal"];
+    let known = ["super", "groups", "csum", "stat", "map", "blocks", "extents", "ls", "ea", "cat", "htree", "journal", "bitmaps"];
     if !known.contains(&args[0].as_str()) {
         eprintln!("extv: unknown command: {}", args[0]);
         return ExitCode::from(3);

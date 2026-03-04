@@ -1,6 +1,7 @@
 use crate::err::Result;
 use crate::csum;
 use crate::group;
+use crate::bitmap;
 use crate::inode;
 use crate::journal;
 use crate::dir;
@@ -510,5 +511,66 @@ pub fn journal(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
         j.feature_incompat & !0x3f
     )?;
     writeln!(w, "ro_compat 0x{:08x}", j.feature_ro_compat)?;
+    Ok(())
+}
+
+// The free block and free inode runs, per group, in the form dumpe2fs
+// prints them. Under bigalloc dumpe2fs calls them free clusters and
+// prints the first block of each, which is what the scale below does.
+pub fn bitmaps(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
+    let gs = group::read_all(img, sb)?;
+    let bb = bitmap::block_bitmap(img, sb, &gs)?;
+    let ib = bitmap::inode_bitmap(img, sb, &gs)?;
+    let ratio = bitmap::cluster_ratio(sb);
+    let first = sb.first_data_block as u64 / ratio;
+    let total = bitmap::clusters_count(sb);
+    for g in 0..sb.group_count {
+        writeln!(w, "group {}", g)?;
+        let base = g * sb.clusters_per_group as u64;
+        // The last group is short: the bits past the end of the
+        // filesystem are not printed by dumpe2fs and must not be
+        // printed here either.
+        let n = (sb.clusters_per_group as u64).min(total.saturating_sub(base));
+        write!(w, "freeblocks")?;
+        // dumpe2fs prints a run of one block as one number and a
+        // longer run as first-last. Under bigalloc it prints a run of
+        // one cluster as a range too, because the cluster covers
+        // several blocks and the last of them is not the first. Both
+        // forms were checked against images built for the purpose,
+        // one with an isolated free block and one with an isolated
+        // free cluster.
+        for (a, b) in bitmap::free_runs(&bb, first + base, n) {
+            if a == b && ratio == 1 {
+                write!(w, " {}", a)?;
+            } else {
+                write!(w, " {}-{}", a * ratio, b * ratio + ratio - 1)?;
+            }
+        }
+        writeln!(w)?;
+        let ibase = g * sb.inodes_per_group as u64;
+        let ni = (sb.inodes_per_group as u64).min((sb.inodes_count as u64).saturating_sub(ibase));
+        write!(w, "freeinodes")?;
+        for (a, b) in bitmap::free_runs(&ib, ibase, ni) {
+            if a == b {
+                write!(w, " {}", a + 1)?;
+            } else {
+                write!(w, " {}-{}", a + 1, b + 1)?;
+            }
+        }
+        writeln!(w)?;
+    }
+    writeln!(
+        w,
+        "summary blocks_in_use {} inodes_in_use {} groups {} block_uninit {} inode_uninit {}",
+        bb.count_set(),
+        ib.count_set(),
+        sb.group_count,
+        gs.iter()
+            .filter(|g| g.flags & group::BG_BLOCK_UNINIT != 0)
+            .count(),
+        gs.iter()
+            .filter(|g| g.flags & group::BG_INODE_UNINIT != 0)
+            .count()
+    )?;
     Ok(())
 }

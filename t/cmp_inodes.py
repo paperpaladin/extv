@@ -21,7 +21,11 @@ GEN = re.compile(r"^Generation:\s+(\d+)\s+Version: (0x[0-9a-f]+)(?::([0-9a-f]+))
 USER = re.compile(r"^User:\s+(\d+)\s+Group:\s+(\d+)\s+(?:Project:\s+(\d+)\s+)?Size: (\d+)")
 ACL = re.compile(r"^File ACL: (\d+)")
 LINKS = re.compile(r"^Links: (\d+)\s+Blockcount: (\d+)")
-TIME = re.compile(r"^\s*(a|c|m|cr|d)time: (0x[0-9a-f]+):?([0-9a-f]+)?")
+# debugfs prints dtime as 0x........:(........), in brackets, because
+# ext4 has no i_dtime_extra: the seconds are the only fact there, so
+# only the seconds are compared. The other four times have a real
+# nanosecond and epoch-extension field and are compared as a pair.
+TIME = re.compile(r"^\s*(a|c|m|cr|d)time: (0x[0-9a-f]+)(?::\(?([0-9a-f]+)\)?)?")
 EXTRA = re.compile(r"^Size of extra inode fields: (\d+)")
 CSUM = re.compile(r"^Inode checksum: (0x[0-9a-f]+)")
 
@@ -70,8 +74,12 @@ def debugfs_stats(img, last):
             continue
         m = TIME.match(line)
         if m:
-            extra = m.group(3) or "00000000"
-            cur[m.group(1) + "time"] = "0x%08x:%s" % (int(m.group(2), 16), extra)
+            if m.group(1) == "d":
+                cur["dtime"] = "0x%08x" % int(m.group(2), 16)
+            else:
+                extra = m.group(3) or "00000000"
+                cur[m.group(1) + "time"] = "0x%08x:%s" % (int(m.group(2), 16),
+                                                          extra)
             continue
         m = EXTRA.match(line)
         if m:
@@ -152,6 +160,9 @@ def main():
     print("COUNT inodes %d" % len(want))
     print("COUNT inodes_in_use %d" % inuse)
     print("COUNT inode_checksums %d" % csums)
+    print("COUNT inodes_deleted %d"
+          % sum(1 for v in want.values()
+                if v.get("dtime", "0x00000000") != "0x00000000"))
     print("DONE")
 
 
