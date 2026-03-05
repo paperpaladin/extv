@@ -147,7 +147,7 @@ its superblock and reporting what state it is in.
       blocks reports an empty directory.
 - [x] Journal superblock: read the inode, report sequence, start and state.
     why: whether the image needs recovery is a fact e2fsck also reports.
-- [ ] Block bitmap check: every block the inodes claim, against the bitmap.
+- [x] Block bitmap check: every block the inodes claim, against the bitmap.
     why: the first real consistency check, and the one e2fsck's pass 5 does.
 - [ ] Inode bitmap check, and the free counts in each group descriptor.
     why: same comparison on the other table, plus the summary counters.

@@ -111,24 +111,7 @@ pub fn block_bitmap(img: &Img, sb: &Sb, gs: &[Group]) -> Result<Bits> {
 // else entirely. This is the set the library marks for a group whose
 // bitmap was never written.
 pub fn group_metadata_blocks(sb: &Sb, g: u64, gd: &Group) -> Vec<u64> {
-    let mut out = Vec::new();
-    let first = group::group_first_block(sb, g);
-    if group::has_super(sb, g) {
-        out.push(first);
-        let n = group::gdt_blocks(sb) + sb.reserved_gdt_blocks as u64;
-        for i in 0..n {
-            out.push(first + 1 + i);
-        }
-    } else if sb.has_incompat(crate::sb::INCOMPAT_META_BG) {
-        // In a meta block group the descriptor block sits in the first,
-        // second and last group of the meta group, with no superblock
-        // beside it in the last.
-        if let Ok((blk, _)) = group::desc_location(sb, g) {
-            if blk >= first && blk < first + sb.blocks_per_group as u64 {
-                out.push(blk);
-            }
-        }
-    }
+    let mut out = group::super_and_gdt_blocks(sb, g);
     out.push(gd.block_bitmap);
     out.push(gd.inode_bitmap);
     for i in 0..inode_table_blocks(sb) {

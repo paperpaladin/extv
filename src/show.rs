@@ -2,6 +2,7 @@ use crate::err::Result;
 use crate::csum;
 use crate::group;
 use crate::bitmap;
+use crate::check;
 use crate::inode;
 use crate::journal;
 use crate::dir;
@@ -573,4 +574,26 @@ pub fn bitmaps(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
             .count()
     )?;
     Ok(())
+}
+
+// The consistency check. One line per problem and a summary, and the
+// exit status is the answer: 0 clean, 1 inconsistent. A malformed
+// image never gets this far, because reading it returns an error and
+// main turns that into exit 2.
+pub fn check(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<i32> {
+    let r = check::run(img, sb)?;
+    for p in &r.problems {
+        writeln!(w, "problem {}", p)?;
+    }
+    writeln!(
+        w,
+        "summary problems {} inodes {} blocks_claimed {} blocks_in_use {} shared {}",
+        r.problems.len(),
+        r.inodes_walked,
+        r.blocks_claimed,
+        r.blocks_in_use,
+        r.shared_blocks
+    )?;
+    writeln!(w, "verdict {}", if r.clean() { "clean" } else { "inconsistent" })?;
+    Ok(if r.clean() { 0 } else { 1 })
 }

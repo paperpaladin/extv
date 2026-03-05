@@ -185,6 +185,33 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- extv check against e2fsck -fn, clean direction"
+# Half of the hard invariant. The other half, that extv calls a broken
+# image broken, needs images that are broken on purpose and lives with
+# the corrupt corpus below. Both exit statuses are required to agree,
+# not just extv's: an e2fsck that has started refusing these images
+# would otherwise turn into a silent pass here.
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	"$EXTV" check "$img" > "$scratch/check.out" 2>"$scratch/check.err"
+	ec=$?
+	e2fsck -fn "$img" > "$scratch/fsck.out" 2>&1
+	fc=$?
+	if [ "$ec" = 0 ] && [ "$fc" = 0 ]; then
+		ok "$name check: both extv and e2fsck call it clean"
+		sed -n 's/^summary /COUNT_LINE /p' "$scratch/check.out" |
+			while read -r _ a b c d e f g h; do
+				echo "COUNT check_inodes $b" >> "$scratch/counts"
+				echo "COUNT check_blocks_claimed $d" >> "$scratch/counts"
+			done
+	else
+		no "$name check: extv exit $ec, e2fsck exit $fc"
+		head -4 "$scratch/check.out" | sed 's/^/     /'
+		head -4 "$scratch/check.err" | sed 's/^/     /'
+		grep -v '^Pass \|^$' "$scratch/fsck.out" | head -4 | sed 's/^/     /'
+	fi
+done < "$scratch/manifest"
+
+echo
 echo "--- block and inode bitmaps against the dumpe2fs free lists"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 	helper "$name" python3 "$here/cmp_bitmaps.py" "$EXTV" "$img" "$name"

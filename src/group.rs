@@ -137,13 +137,44 @@ pub fn read_all(img: &Img, sb: &Sb) -> Result<Vec<Group>> {
     Ok(v)
 }
 
-// Blocks the whole descriptor table occupies in one group. Used by the
-// consistency check, which has to know which blocks are metadata.
+// Blocks the whole descriptor table occupies, which is how many a
+// group with a superblock backup carries in the classic layout.
 pub fn gdt_blocks(sb: &Sb) -> u64 {
     let per_block = (sb.block_size / sb.desc_size as u32) as u64;
-    if sb.has_incompat(INCOMPAT_META_BG) {
-        1
-    } else {
-        (sb.group_count + per_block - 1) / per_block
+    (sb.group_count + per_block - 1) / per_block
+}
+
+// The superblock backup and descriptor blocks group g carries, if any.
+//
+// meta_bg changes this and it is easy to get wrong in a way no
+// ordinary image notices. Without it, every group with a superblock
+// backup carries the whole descriptor table after it, plus the
+// reserved growth blocks. With it, a group in the meta_bg region
+// carries one descriptor block and only if it is the first, second or
+// last group of its meta block group, and it carries no reserved
+// blocks at all. Marking the table after every backup superblock
+// instead put three blocks into the in-use set that e2fsck knows are
+// free, which is how this was found.
+pub fn super_and_gdt_blocks(sb: &Sb, g: u64) -> Vec<u64> {
+    let mut out = Vec::new();
+    let first = group_first_block(sb, g);
+    let sup = has_super(sb, g);
+    if sup {
+        out.push(first);
     }
+    let per_block = (sb.block_size / sb.desc_size as u32) as u64;
+    let metagroup = g / per_block;
+    if !sb.has_incompat(INCOMPAT_META_BG) || metagroup < sb.first_meta_bg as u64 {
+        if sup {
+            for i in 0..gdt_blocks(sb) + sb.reserved_gdt_blocks as u64 {
+                out.push(first + 1 + i);
+            }
+        }
+    } else {
+        let m = g % per_block;
+        if m == 0 || m == 1 || m == per_block - 1 {
+            out.push(first + if sup { 1 } else { 0 });
+        }
+    }
+    out
 }
