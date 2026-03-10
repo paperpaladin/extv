@@ -198,11 +198,9 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 	fc=$?
 	if [ "$ec" = 0 ] && [ "$fc" = 0 ]; then
 		ok "$name check: both extv and e2fsck call it clean"
-		sed -n 's/^summary /COUNT_LINE /p' "$scratch/check.out" |
-			while read -r _ a b c d e f g h; do
-				echo "COUNT check_inodes $b" >> "$scratch/counts"
-				echo "COUNT check_blocks_claimed $d" >> "$scratch/counts"
-			done
+		awk '/^summary/ {for (i = 2; i < NF; i += 2)
+			printf "COUNT check_%s %s\n", $i, $(i + 1)}' \
+			"$scratch/check.out" >> "$scratch/counts"
 	else
 		no "$name check: extv exit $ec, e2fsck exit $fc"
 		head -4 "$scratch/check.out" | sed 's/^/     /'

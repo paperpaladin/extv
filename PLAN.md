@@ -149,7 +149,7 @@ its superblock and reporting what state it is in.
     why: whether the image needs recovery is a fact e2fsck also reports.
 - [x] Block bitmap check: every block the inodes claim, against the bitmap.
     why: the first real consistency check, and the one e2fsck's pass 5 does.
-- [ ] Inode bitmap check, and the free counts in each group descriptor.
+- [x] Inode bitmap check, and the free counts in each group descriptor.
     why: same comparison on the other table, plus the summary counters.
 - [ ] Link count check: count directory entries per inode, compare to
       i_links_count.

@@ -587,12 +587,15 @@ pub fn check(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<i32> {
     }
     writeln!(
         w,
-        "summary problems {} inodes {} blocks_claimed {} blocks_in_use {} shared {}",
+        "summary problems {} inodes {} blocks_claimed {} blocks_in_use {} \
+         shared {} counters {} dirs {}",
         r.problems.len(),
         r.inodes_walked,
         r.blocks_claimed,
         r.blocks_in_use,
-        r.shared_blocks
+        r.shared_blocks,
+        r.counters_checked,
+        r.dirs
     )?;
     writeln!(w, "verdict {}", if r.clean() { "clean" } else { "inconsistent" })?;
     Ok(if r.clean() { 0 } else { 1 })

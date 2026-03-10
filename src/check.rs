@@ -22,6 +22,8 @@ pub struct Report {
     pub inodes_walked: u64,
     pub blocks_claimed: u64,
     pub shared_blocks: u64,
+    pub counters_checked: u64,
+    pub dirs: u64,
 }
 
 impl Report {
@@ -66,6 +68,8 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
     // block that holds nothing else.
     used.set(sb.first_data_block as u64 / ratio);
 
+    let mut inodes_used = Bits::new(sb.inodes_count as u64);
+    let mut dirs_in = Bits::new(sb.inodes_count as u64);
     let mut owner: Vec<u32> = Vec::new();
     let mut inodes_walked = 0u64;
     let mut blocks_claimed = 0u64;
@@ -81,6 +85,10 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
             continue;
         }
         inodes_walked += 1;
+        inodes_used.set(num as u64 - 1);
+        if ino.is_dir() {
+            dirs_in.set(num as u64 - 1);
+        }
         let mut claim = |b: u64, problems: &mut Vec<String>| {
             if b < sb.first_data_block as u64 || b >= sb.blocks_count {
                 problems.push(format!(
@@ -156,11 +164,134 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
         ));
     }
 
+    // The inode bitmap, and then the counters in every group
+    // descriptor and in the superblock. A counter is a summary of a
+    // bitmap, so a filesystem can have the bitmap right and the
+    // counter wrong, and e2fsck reports exactly that as a problem.
+    let ib = bitmap::inode_bitmap(img, sb, &gs)?;
+    let mut iwrong = 0u64;
+    for i in 0..sb.inodes_count as u64 {
+        if inodes_used.get(i) == ib.get(i) {
+            continue;
+        }
+        iwrong += 1;
+        if iwrong <= 8 {
+            problems.push(if inodes_used.get(i) {
+                format!(
+                    "inode {} is in use and the inode bitmap says it is free",
+                    i + 1
+                )
+            } else {
+                format!(
+                    "inode {} is marked in use in the inode bitmap and nothing links to it",
+                    i + 1
+                )
+            });
+        }
+    }
+    if iwrong > 8 {
+        problems.push(format!(
+            "and {} more inodes where the bitmap and the links disagree",
+            iwrong - 8
+        ));
+    }
+
+    let mut counters = 0u64;
+    let mut total_free_clusters = 0u64;
+    let mut total_free_inodes = 0u64;
+    for (g, gd) in gs.iter().enumerate() {
+        let g = g as u64;
+        let base = first + g * sb.clusters_per_group as u64;
+        let span = (sb.clusters_per_group as u64).min(n.saturating_sub(base));
+        let free = (0..span).filter(|&i| !used.get(base + i)).count() as u64;
+        total_free_clusters += free;
+        if free != gd.free_blocks as u64 {
+            problems.push(format!(
+                "group {} says it has {} free blocks and it has {}",
+                g, gd.free_blocks, free
+            ));
+        }
+        counters += 1;
+
+        let ibase = g * sb.inodes_per_group as u64;
+        let ispan = (sb.inodes_per_group as u64)
+            .min((sb.inodes_count as u64).saturating_sub(ibase));
+        let ifree = (0..ispan).filter(|&i| !inodes_used.get(ibase + i)).count() as u64;
+        total_free_inodes += ifree;
+        if ifree != gd.free_inodes as u64 {
+            problems.push(format!(
+                "group {} says it has {} free inodes and it has {}",
+                g, gd.free_inodes, ifree
+            ));
+        }
+        counters += 1;
+
+        let d = (0..ispan)
+            .filter(|&i| dirs_in.get(ibase + i))
+            .count() as u64;
+        if d != gd.used_dirs as u64 {
+            problems.push(format!(
+                "group {} says it holds {} directories and it holds {}",
+                g, gd.used_dirs, d
+            ));
+        }
+        counters += 1;
+
+        // itable_unused counts inodes at the END of the group that
+        // have never been used, so the real constraint is that no
+        // inode inside that tail is in use. A value that is too small
+        // is allowed and costs only a slower fsck.
+        if sb.has_ro(crate::sb::RO_GDT_CSUM) || sb.has_ro(crate::sb::RO_METADATA_CSUM) {
+            let unused = gd.unused_inodes as u64;
+            if unused > ispan {
+                problems.push(format!(
+                    "group {} says {} of its inodes are unused and it has {}",
+                    g, unused, ispan
+                ));
+            } else {
+                for i in (ispan - unused)..ispan {
+                    if inodes_used.get(ibase + i) {
+                        problems.push(format!(
+                            "group {} says its last {} inodes are unused and inode {} is in use",
+                            g,
+                            unused,
+                            ibase + i + 1
+                        ));
+                        break;
+                    }
+                }
+            }
+            counters += 1;
+        }
+    }
+    // The group descriptors count free clusters and the superblock
+    // counts free blocks, so under bigalloc the two differ by the
+    // cluster ratio. Comparing them as the same unit made the bigalloc
+    // image the only one that failed, with the superblock's 12316
+    // against the groups' 3079.
+    if total_free_clusters * ratio != sb.free_blocks {
+        problems.push(format!(
+            "the superblock says {} free blocks and the groups hold {}",
+            sb.free_blocks,
+            total_free_clusters * ratio
+        ));
+    }
+    counters += 1;
+    if total_free_inodes != sb.free_inodes as u64 {
+        problems.push(format!(
+            "the superblock says {} free inodes and the groups hold {}",
+            sb.free_inodes, total_free_inodes
+        ));
+    }
+    counters += 1;
+
     Ok(Report {
         problems,
         blocks_in_use: used.count_set(),
         inodes_walked,
         blocks_claimed,
         shared_blocks: shared,
+        counters_checked: counters,
+        dirs: dirs_in.count_set(),
     })
 }
