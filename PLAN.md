@@ -151,7 +151,7 @@ its superblock and reporting what state it is in.
     why: the first real consistency check, and the one e2fsck's pass 5 does.
 - [x] Inode bitmap check, and the free counts in each group descriptor.
     why: same comparison on the other table, plus the summary counters.
-- [ ] Link count check: count directory entries per inode, compare to
+- [x] Link count check: count directory entries per inode, compare to
       i_links_count.
     why: e2fsck pass 4, and it needs the whole directory tree walked first.
 - [ ] Orphan inode list, and the orphan_file feature.

@@ -13,6 +13,7 @@ use crate::err::Result;
 use crate::group::{self, Group};
 use crate::img::Img;
 use crate::inode;
+use crate::dir;
 use crate::map::{self, Entry};
 use crate::sb::Sb;
 
@@ -24,6 +25,8 @@ pub struct Report {
     pub shared_blocks: u64,
     pub counters_checked: u64,
     pub dirs: u64,
+    pub links_checked: u64,
+    pub dirents: u64,
 }
 
 impl Report {
@@ -68,6 +71,8 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
     // block that holds nothing else.
     used.set(sb.first_data_block as u64 / ratio);
 
+    let mut links: Vec<u32> = vec![0; sb.inodes_count as usize];
+    let mut dirents = 0u64;
     let mut inodes_used = Bits::new(sb.inodes_count as u64);
     let mut dirs_in = Bits::new(sb.inodes_count as u64);
     let mut owner: Vec<u32> = Vec::new();
@@ -88,6 +93,16 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
         inodes_used.set(num as u64 - 1);
         if ino.is_dir() {
             dirs_in.set(num as u64 - 1);
+            // Every entry counts towards the link count of the inode
+            // it names, "." and ".." included: that is why a directory
+            // with no subdirectories has two links and gains one per
+            // child directory.
+            for e in dir::read(img, sb, &ino)?.entries {
+                dirents += 1;
+                if e.inode >= 1 && e.inode <= sb.inodes_count {
+                    links[e.inode as usize - 1] += 1;
+                }
+            }
         }
         let mut claim = |b: u64, problems: &mut Vec<String>| {
             if b < sb.first_data_block as u64 || b >= sb.blocks_count {
@@ -161,6 +176,59 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
         problems.push(format!(
             "and {} more blocks where the bitmap and the inodes disagree",
             wrong - 8
+        ));
+    }
+
+    // Link counts. e2fsck's pass 4, and it needs the whole directory
+    // tree walked first, which the loop above has just done. The
+    // reserved inodes are left out: nothing links to the journal or to
+    // the resize inode and e2fsck does not expect anything to.
+    // Some inodes past first_ino are still named by the superblock
+    // rather than by a directory: the orphan file and the three quota
+    // files. ext4 with the orphan_file feature puts one at inode 12,
+    // and treating it as an unattached inode made every image with
+    // that feature read as inconsistent while e2fsck called it clean.
+    let unlinked_by_design = [
+        sb.journal_inum,
+        sb.orphan_file_inum,
+        sb.usr_quota_inum,
+        sb.grp_quota_inum,
+        sb.prj_quota_inum,
+    ];
+    let mut links_checked = 0u64;
+    let mut lwrong = 0u64;
+    for num in sb.first_ino..=sb.inodes_count {
+        if !inodes_used.get(num as u64 - 1) {
+            continue;
+        }
+        if unlinked_by_design.contains(&num) {
+            continue;
+        }
+        let want = links[num as usize - 1];
+        let have = inode::read(img, sb, num)?.links_count;
+        links_checked += 1;
+        if want as u16 == have {
+            continue;
+        }
+        lwrong += 1;
+        if lwrong <= 8 {
+            problems.push(if want == 0 {
+                format!(
+                    "inode {} is in use with {} links and no directory names it",
+                    num, have
+                )
+            } else {
+                format!(
+                    "inode {} has a link count of {} and {} directory entries name it",
+                    num, have, want
+                )
+            });
+        }
+    }
+    if lwrong > 8 {
+        problems.push(format!(
+            "and {} more inodes whose link count is not the number of names",
+            lwrong - 8
         ));
     }
 
@@ -293,5 +361,7 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
         shared_blocks: shared,
         counters_checked: counters,
         dirs: dirs_in.count_set(),
+        links_checked,
+        dirents,
     })
 }
