@@ -185,6 +185,12 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- the orphan list against dumpe2fs"
+while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
+	helper "$name" python3 "$here/cmp_orphans.py" "$EXTV" "$img" "$name"
+done < "$scratch/manifest"
+
+echo
 echo "--- extv check against e2fsck -fn, clean direction"
 # Half of the hard invariant. The other half, that extv calls a broken
 # image broken, needs images that are broken on purpose and lives with
@@ -264,7 +270,8 @@ for path in path_ind path_dind path_tind path_etb path_inline \
             ea_in_inode ea_in_block dirent_tails dirs_inline \
             dirent_wide_rec_len journal_none journal_features \
             bitmap_single_runs bitmap_range_runs bitmap_block_uninit \
-            bitmap_inode_uninit inodes_deleted \
+            bitmap_inode_uninit inodes_deleted orphan_chain \
+            orphan_file_blocks orphan_lists_empty \
             htree_levels htree_version_0 htree_version_1 htree_version_2 \
             htree_version_3 htree_version_4 htree_version_5; do
 	n=$(awk -v k="$path" '$2 == k {t += $3} END {print t + 0}' "$scratch/counts")

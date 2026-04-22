@@ -101,6 +101,17 @@ mk() {
 			count=1 conv=notrunc status=none || exit 1
 		;;
 	esac
+	# A non-empty orphan inode list. Nothing here mounts anything,
+	# so every image comes out with an empty one and the list walk
+	# would never run. debugfs can set the head of the list, and
+	# e2fsck leaves the list alone on a cleanly unmounted image, so
+	# the image stays clean. dumpe2fs then prints First orphan
+	# inode, which is the one part of the list an oracle sees.
+	case ",$tags," in
+	*,orphan,*)
+		debugfs -w -R "ssv last_orphan 13" "$img" >/dev/null 2>&1
+		;;
+	esac
 	# A hole in the middle of the allocated blocks. Without one every
 	# free list in the corpus is a single run reaching the end of the
 	# group, and dumpe2fs prints a one-block run as a bare number and
@@ -143,7 +154,7 @@ mk() {
 # twice, so it lands in an attribute block of its own.
 python3 -c "import sys; sys.stdout.write('v' * 400)" > "$dir/eabig"
 
-mk ext2-1024-128        64M  ext2 1024 128 plain
+mk ext2-1024-128        64M  ext2 1024 128 plain,orphan
 mk ext2-2048-128        64M  ext2 2048 128 plain
 mk ext2-4096-256        64M  ext2 4096 256 plain,gap
 mk ext2-1024-256-nosparse 64M ext2 1024 256 nosparse -O ^sparse_super,^resize_inode
@@ -154,7 +165,7 @@ mk ext3-2048-256        64M  ext3 2048 256 journal
 mk ext3-4096-256        64M  ext3 4096 256 journal
 mk ext4-1024-256        64M  ext4 1024 256 journal,uninitgarbage,extent,64bit,csum
 mk ext4-2048-256        64M  ext4 2048 256 journal,jused,extent,64bit,csum
-mk ext4-4096-256        64M  ext4 4096 256 journal,extent,64bit,csum
+mk ext4-4096-256        64M  ext4 4096 256 journal,orphan,extent,64bit,csum
 mk ext4-4096-128        64M  ext4 4096 128 extent,64bit,csum
 mk ext4-1024-256-nojournal 64M ext4 1024 256 extent,64bit,csum -O ^has_journal
 mk ext4-1024-256-noextent 64M ext4 1024 256 noextent -O ^extent,^64bit

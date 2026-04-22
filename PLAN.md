@@ -154,7 +154,7 @@ its superblock and reporting what state it is in.
 - [x] Link count check: count directory entries per inode, compare to
       i_links_count.
     why: e2fsck pass 4, and it needs the whole directory tree walked first.
-- [ ] Orphan inode list, and the orphan_file feature.
+- [x] Orphan inode list, and the orphan_file feature.
     why: a list that is normally empty is one nothing tests until it is not.
 - [ ] `extv check` exit status, and the e2fsck agreement test in both
       directions over the whole corpus.

@@ -9,7 +9,7 @@
 // the first says extv cannot tell, the second says extv can tell and
 // the answer is no.
 use crate::bitmap::{self, Bits};
-use crate::err::Result;
+use crate::err::{bad, Result};
 use crate::group::{self, Group};
 use crate::img::Img;
 use crate::inode;
@@ -364,4 +364,90 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
         links_checked,
         dirents,
     })
+}
+
+pub const ORPHAN_BLOCK_MAGIC: u32 = 0x0b10_ca04;
+
+pub struct Orphans {
+    pub head: u32,
+    pub chain: Vec<u32>,
+    pub file_inum: u32,
+    pub file_blocks: u64,
+    pub file_entries: Vec<u32>,
+    pub bad_magic: u64,
+    pub problems: Vec<String>,
+}
+
+// The orphan list and the orphan file: the two places ext4 records
+// inodes that were unlinked while still open, so that a fsck after a
+// crash knows to finish deleting them.
+//
+// On a cleanly unmounted filesystem both are empty, which is every
+// image here, because nothing in this project mounts anything. The
+// head of the list is the one part with an outside oracle: dumpe2fs
+// prints it as "First orphan inode". The rest of the chain has none,
+// and the README says so.
+//
+// The chain is the interesting part to get wrong. Each orphan's
+// i_dtime holds the number of the next one, so a damaged image can
+// point an inode at itself and a reader that just follows the
+// pointers never stops.
+pub fn orphans(img: &Img, sb: &Sb) -> Result<Orphans> {
+    let mut o = Orphans {
+        head: sb.last_orphan,
+        chain: Vec::new(),
+        file_inum: sb.orphan_file_inum,
+        file_blocks: 0,
+        file_entries: Vec::new(),
+        bad_magic: 0,
+        problems: Vec::new(),
+    };
+    let mut seen = Bits::new(sb.inodes_count as u64 + 1);
+    let mut num = sb.last_orphan;
+    while num != 0 {
+        // A loop and an inode number past the end of the table are
+        // both refusals rather than reported problems. They are not
+        // states a filesystem can be in, they are states an image can
+        // claim, and following either one is how a reader is made to
+        // run forever or read out of bounds.
+        if num > sb.inodes_count {
+            return bad(format!(
+                "the orphan list names inode {}, past the last inode {}",
+                num, sb.inodes_count
+            ));
+        }
+        if seen.get(num as u64) {
+            return bad(format!(
+                "the orphan list reaches inode {} twice: it is a loop",
+                num
+            ));
+        }
+        seen.set(num as u64);
+        o.chain.push(num);
+        num = inode::read(img, sb, num)?.dtime;
+    }
+    if sb.orphan_file_inum != 0 {
+        let ino = inode::read(img, sb, sb.orphan_file_inum)?;
+        let per = (sb.block_size as usize - 8) / 4;
+        for (_, phys) in map::data_blocks(img, sb, &ino)? {
+            o.file_blocks += 1;
+            let buf = img.block(phys)?;
+            let v = crate::img::V::new(&buf, "orphan file block");
+            if v.u32(sb.block_size as usize - 8)? != ORPHAN_BLOCK_MAGIC {
+                o.bad_magic += 1;
+                o.problems.push(format!(
+                    "orphan file block {} does not carry the orphan magic",
+                    phys
+                ));
+                continue;
+            }
+            for i in 0..per {
+                let n = v.u32(i * 4)?;
+                if n != 0 {
+                    o.file_entries.push(n);
+                }
+            }
+        }
+    }
+    Ok(o)
 }

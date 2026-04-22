@@ -602,3 +602,33 @@ pub fn check(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<i32> {
     writeln!(w, "verdict {}", if r.clean() { "clean" } else { "inconsistent" })?;
     Ok(if r.clean() { 0 } else { 1 })
 }
+
+// The orphan list and the orphan file.
+pub fn orphans(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
+    let o = check::orphans(img, sb)?;
+    writeln!(w, "last_orphan {}", o.head)?;
+    write!(w, "chain")?;
+    for n in &o.chain {
+        write!(w, " {}", n)?;
+    }
+    writeln!(w)?;
+    writeln!(w, "orphan_file_inum {}", o.file_inum)?;
+    write!(w, "file_entries")?;
+    for n in &o.file_entries {
+        write!(w, " {}", n)?;
+    }
+    writeln!(w)?;
+    for p in &o.problems {
+        writeln!(w, "problem {}", p)?;
+    }
+    writeln!(
+        w,
+        "summary chain {} file_blocks {} file_entries {} bad_magic {} problems {}",
+        o.chain.len(),
+        o.file_blocks,
+        o.file_entries.len(),
+        o.bad_magic,
+        o.problems.len()
+    )?;
+    Ok(())
+}
