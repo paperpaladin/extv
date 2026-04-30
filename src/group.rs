@@ -109,11 +109,26 @@ pub fn read_group_raw(img: &Img, sb: &Sb, g: u64) -> Result<Vec<u8>> {
     }
 }
 
+// A descriptor whose three block pointers do not land inside the
+// filesystem describes nothing, and every later read follows them.
+// Writing 0xff over the descriptor table used to produce a full
+// listing of plausible-looking numbers and exit 0, which is the
+// failure mode this whole project is built to avoid.
+fn check_loc(sb: &Sb, g: u64, what: &str, b: u64, span: u64) -> Result<()> {
+    if b == 0 || b < sb.first_data_block as u64 || b + span > sb.blocks_count {
+        return bad(format!(
+            "group {} puts its {} at block {}, and the filesystem has {} blocks",
+            g, what, b, sb.blocks_count
+        ));
+    }
+    Ok(())
+}
+
 pub fn read_group(img: &Img, sb: &Sb, g: u64) -> Result<Group> {
     let raw = read_group_raw(img, sb, g)?;
     let d = V::new(&raw, "group descriptor");
     let wide = sb.is_64bit() && sb.desc_size >= 64;
-    Ok(Group {
+    let gd = Group {
         block_bitmap: d.u32_pair(0, 32, wide)?,
         inode_bitmap: d.u32_pair(4, 36, wide)?,
         inode_table: d.u32_pair(8, 40, wide)?,
@@ -126,7 +141,27 @@ pub fn read_group(img: &Img, sb: &Sb, g: u64) -> Result<Group> {
         inode_bitmap_csum: d.u16_pair(26, 58, wide)?,
         unused_inodes: d.u16_pair(28, 50, wide)?,
         checksum: d.u16(30)?,
-    })
+    };
+    check_loc(sb, g, "block bitmap", gd.block_bitmap, 1)?;
+    check_loc(sb, g, "inode bitmap", gd.inode_bitmap, 1)?;
+    let itable = (sb.inodes_per_group as u64 * sb.inode_size as u64
+        + sb.block_size as u64
+        - 1)
+        / sb.block_size as u64;
+    check_loc(sb, g, "inode table", gd.inode_table, itable)?;
+    if gd.free_inodes as u64 > sb.inodes_per_group as u64 {
+        return bad(format!(
+            "group {} says {} of its {} inodes are free",
+            g, gd.free_inodes, sb.inodes_per_group
+        ));
+    }
+    if gd.free_blocks as u64 > sb.clusters_per_group as u64 {
+        return bad(format!(
+            "group {} says {} of its {} blocks are free",
+            g, gd.free_blocks, sb.clusters_per_group
+        ));
+    }
+    Ok(gd)
 }
 
 pub fn read_all(img: &Img, sb: &Sb) -> Result<Vec<Group>> {

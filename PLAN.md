@@ -42,7 +42,10 @@ Ranked by how little control we have over them.
 ## Non-goals
 
 Writing. Repair. Mounting. Reading a block device (it would work, but
-nothing here tests it, so it is not claimed). ext4 encryption, verity,
+nothing here tests it, so it is not claimed). Falling back to a backup
+superblock or a backup descriptor table: extv reads the primary copy
+and refuses when it is damaged, where e2fsck recovers from the backups
+and carries on. ext4 encryption, verity,
 casefolding and quota files. Replaying the journal, as opposed to reading
 its superblock and reporting what state it is in.
 
@@ -159,7 +162,7 @@ its superblock and reporting what state it is in.
 - [ ] `extv check` exit status, and the e2fsck agreement test in both
       directions over the whole corpus.
     why: the hard invariant. Clean must mean clean too.
-- [ ] Corrupt corpus: bad superblock magic, truncated image, garbage group
+- [x] Corrupt corpus: bad superblock magic, truncated image, garbage group
       descriptors.
     why: refusals counted separately from wrong answers, always.
 - [ ] Corrupt corpus: extent tree with a bad magic, a depth that does not

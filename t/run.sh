@@ -216,6 +216,21 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 done < "$scratch/manifest"
 
 echo
+echo "--- damaged images: refusals counted apart from wrong answers"
+# Two bases, because the shape of the damage depends on the layout:
+# the 1024-byte-block image is the only one where the superblock is
+# not in block 0, and the 4096-byte one is the only one with an extent
+# tree to break.
+corrupt_b1=$(awk -F'\t' '$1 == "ext4-4096-256" {print $2}' "$scratch/manifest")
+corrupt_b2=$(awk -F'\t' '$1 == "ext2-1024-128" {print $2}' "$scratch/manifest")
+if [ -z "$corrupt_b1" ] || [ -z "$corrupt_b2" ]; then
+	no "corrupt: the corpus no longer holds the two base images"
+else
+	EXTV="$EXTV" helper corrupt python3 "$here/corrupt.py" "$scratch" \
+		corrupt "$corrupt_b1" "$corrupt_b2"
+fi
+
+echo
 echo "--- block and inode bitmaps against the dumpe2fs free lists"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 	helper "$name" python3 "$here/cmp_bitmaps.py" "$EXTV" "$img" "$name"
@@ -271,7 +286,7 @@ for path in path_ind path_dind path_tind path_etb path_inline \
             dirent_wide_rec_len journal_none journal_features \
             bitmap_single_runs bitmap_range_runs bitmap_block_uninit \
             bitmap_inode_uninit inodes_deleted orphan_chain \
-            orphan_file_blocks orphan_lists_empty \
+            orphan_file_blocks orphan_lists_empty corrupt_refusals \
             htree_levels htree_version_0 htree_version_1 htree_version_2 \
             htree_version_3 htree_version_4 htree_version_5; do
 	n=$(awk -v k="$path" '$2 == k {t += $3} END {print t + 0}' "$scratch/counts")
