@@ -54,6 +54,31 @@ def inode_offset(img, num):
     return int(m.group(1)) * blocksize(img) + int(m.group(2), 16)
 
 
+def ino_of(img, path):
+    out = sh("debugfs", "-R", "stat %s" % path, img)
+    m = re.search(r"^Inode: (\d+)", out, re.M)
+    if not m:
+        raise SystemExit("corrupt.py: no inode for %s in %s" % (path, img))
+    return int(m.group(1))
+
+
+def has_extents(img):
+    return "extent" in sh("dumpe2fs", "-h", img)
+
+
+def u16le(n):
+    return bytes([n & 0xff, (n >> 8) & 0xff])
+
+
+def u32le(n):
+    return bytes([n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff])
+
+
+def rd32(img, off):
+    b = peek(img, off, 4)
+    return b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)
+
+
 def bmap(img, num, logical=0):
     out = sh("debugfs", "-R", "bmap <%d> %d" % (num, logical), img).strip()
     return int(out.split()[-1])
@@ -100,7 +125,7 @@ def oracle_saw(img):
     return None
 
 
-def case(label, base, breakit, cmd, want, e2fsck_sees=True, why=""):
+def case(label, base, breakit, cmd, want, e2fsck_sees=True, why="", msg=None):
     """Run one damaged-image case. cmd is the extv argv after the image."""
     global refusals, inconsistent
     # The same damage behaves differently on different layouts, so the
@@ -138,6 +163,15 @@ def case(label, base, breakit, cmd, want, e2fsck_sees=True, why=""):
         if not err.startswith("extv: malformed image:"):
             failed.append("%s: refused without saying the image is malformed: %r"
                           % (label, err[:120]))
+            return
+        # The reason matters, not just the refusal. Deleting the rule
+        # that an extent node's depth must fall by one left the case
+        # passing, because the child was then read as an interior
+        # node and the grandchild's magic failed instead. The refusal
+        # was real and it was not the one being tested.
+        if msg is not None and msg not in err:
+            failed.append("%s: refused for the wrong reason: wanted %r, said %r"
+                          % (label, msg, err[:160]))
             return
         refusals += 1
     elif want == "inconsistent":
@@ -178,7 +212,8 @@ def superblock_cases(base):
     # the layout from the rest of the superblock is exactly the guess
     # this program does not make.
     case("superblock magic zeroed", base,
-         lambda img: poke(img, 1024 + 56, b"\x00\x00"), ["super"], "refuse")
+         lambda img: poke(img, 1024 + 56, b"\x00\x00"), ["super"], "refuse",
+         msg="superblock magic")
     case("superblock magic wrong", base,
          lambda img: poke(img, 1024 + 56, b"\x54\xef"), ["super"], "refuse")
     # s_log_block_size of 0xff asks for a block of 2**(10+255) bytes.
@@ -208,12 +243,75 @@ def superblock_cases(base):
         bs = blocksize(img)
         first = 1 if bs == 1024 else 0
         poke(img, (first + 1) * bs, b"\xff" * bs)
-    case("group descriptors are 0xff", base, wreck_gdt, ["groups"], "refuse")
+    case("group descriptors are 0xff", base, wreck_gdt, ["groups"], "refuse",
+         msg="block bitmap at block")
+
+
+# The extent tree is where a hostile image gets a reader to recurse,
+# so these are the cases the recursion has to survive. i_block starts
+# 40 bytes into the inode and holds a 12-byte header followed by four
+# 12-byte entries.
+EXT_HEADER = 40
+EXT_MAGIC_OFF = 0
+EXT_ENTRIES_OFF = 2
+EXT_MAX_OFF = 4
+EXT_DEPTH_OFF = 6
+
+
+def extent_cases(base):
+    if not has_extents(base):
+        return
+    flat = ino_of(base, "/b4096")
+    deep = ino_of(base, "/chunks")
+    root = inode_offset(base, flat) + EXT_HEADER
+    droot = inode_offset(base, deep) + EXT_HEADER
+
+    case("extent magic wrong", base,
+         lambda img: poke(img, root + EXT_MAGIC_OFF, u16le(0x1234)),
+         ["extents", str(flat)], "refuse", msg="extent node magic")
+    case("extent depth of 9", base,
+         lambda img: poke(img, root + EXT_DEPTH_OFF, u16le(9)),
+         ["extents", str(flat)], "refuse", msg="the format allows 5")
+    case("extent entry count above the maximum", base,
+         lambda img: poke(img, root + EXT_ENTRIES_OFF, u16le(400)),
+         ["extents", str(flat)], "refuse")
+    case("extent node claims room for 9999 entries", base,
+         lambda img: poke(img, root + EXT_MAX_OFF, u16le(9999)),
+         ["extents", str(flat)], "refuse")
+
+    # Depth that does not fall. The root of /chunks has depth 1 and
+    # its first index points at a node that must have depth 0.
+    def child_keeps_depth(img):
+        child = rd32(img, droot + 12 + 4)
+        poke(img, child * blocksize(img) + EXT_DEPTH_OFF, u16le(1))
+    case("interior node whose child has the same depth", base,
+         child_keeps_depth, ["extents", str(deep)], "refuse",
+         msg="under a node of depth")
+
+    # An index pointing at the block it lives in. With the depth rule
+    # in place this is caught by the depth, which is the point: the
+    # recursion cannot be made to run away without first making the
+    # depth wrong.
+    def self_pointing(img):
+        child = rd32(img, droot + 12 + 4)
+        poke(img, child * blocksize(img) + 12 + 4, u32le(child))
+        poke(img, child * blocksize(img) + EXT_DEPTH_OFF, u16le(1))
+    case("interior node that points at itself", base, self_pointing,
+         ["extents", str(deep)], "refuse", msg="under a node of depth")
+
+    # A leaf extent whose physical start is past the end of the
+    # filesystem. Reading it would read somebody else's file, or
+    # nothing at all.
+    def off_the_end(img):
+        poke(img, root + 12 + 8, u32le(0xfffffff0))
+    case("leaf extent past the end of the filesystem", base, off_the_end,
+         ["blocks", str(flat)], "refuse")
 
 
 def main():
     for base in BASES:
         superblock_cases(base)
+        extent_cases(base)
     for p in passed:
         print("ok   %s corrupt %s" % (NAME, p))
     for f in failed:

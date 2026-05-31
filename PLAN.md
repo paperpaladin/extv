@@ -165,7 +165,7 @@ its superblock and reporting what state it is in.
 - [x] Corrupt corpus: bad superblock magic, truncated image, garbage group
       descriptors.
     why: refusals counted separately from wrong answers, always.
-- [ ] Corrupt corpus: extent tree with a bad magic, a depth that does not
+- [x] Corrupt corpus: extent tree with a bad magic, a depth that does not
       decrease, a loop.
     why: the recursion is where a hostile image gets a reader to run forever.
 - [ ] Corrupt corpus: directory rec_len of 0, rec_len past the block end, a

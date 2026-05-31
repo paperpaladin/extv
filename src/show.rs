@@ -274,11 +274,18 @@ inline {} fast_symlink {}",
 // extent tree prints nothing, the way debugfs prints only its heading.
 pub fn extents(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
     let i = inode::read(img, sb, num)?;
-    writeln!(w, "inode {}", num)?;
     if !i.has_extents() {
+        writeln!(w, "inode {}", num)?;
         return Ok(());
     }
-    for r in extent::rows(img, sb, &i)? {
+    // The whole tree is read before the first line is written. The
+    // header used to go out first, so a refusal on a damaged tree
+    // left nine bytes of output behind it, and a refusal that has
+    // already printed something has told the operator a fact about
+    // an image it is about to say it cannot read.
+    let rows = extent::rows(img, sb, &i)?;
+    writeln!(w, "inode {}", num)?;
+    for r in rows {
         writeln!(
             w,
             "row {} {} {} {} {} {} {} {} {} {}",

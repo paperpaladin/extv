@@ -115,7 +115,18 @@ pub fn read_group_raw(img: &Img, sb: &Sb, g: u64) -> Result<Vec<u8>> {
 // listing of plausible-looking numbers and exit 0, which is the
 // failure mode this whole project is built to avoid.
 fn check_loc(sb: &Sb, g: u64, what: &str, b: u64, span: u64) -> Result<()> {
-    if b == 0 || b < sb.first_data_block as u64 || b + span > sb.blocks_count {
+    // checked_add, because b comes out of the image. A 64-bit
+    // descriptor full of 0xff gives b = 2^64 - 1, and b + span wraps
+    // to span - 1 in a release build, which is smaller than the
+    // filesystem and passes the check. The 32-bit descriptor in the
+    // same case refused and the 64-bit one did not, which is how this
+    // was found: the two bases gave different refusal messages for
+    // the same damage.
+    let past = match b.checked_add(span) {
+        None => true,
+        Some(e) => e > sb.blocks_count,
+    };
+    if b == 0 || b < sb.first_data_block as u64 || past {
         return bad(format!(
             "group {} puts its {} at block {}, and the filesystem has {} blocks",
             g, what, b, sb.blocks_count
