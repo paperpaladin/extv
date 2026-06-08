@@ -159,7 +159,7 @@ its superblock and reporting what state it is in.
     why: e2fsck pass 4, and it needs the whole directory tree walked first.
 - [x] Orphan inode list, and the orphan_file feature.
     why: a list that is normally empty is one nothing tests until it is not.
-- [ ] `extv check` exit status, and the e2fsck agreement test in both
+- [x] `extv check` exit status, and the e2fsck agreement test in both
       directions over the whole corpus.
     why: the hard invariant. Clean must mean clean too.
 - [x] Corrupt corpus: bad superblock magic, truncated image, garbage group
@@ -168,10 +168,10 @@ its superblock and reporting what state it is in.
 - [x] Corrupt corpus: extent tree with a bad magic, a depth that does not
       decrease, a loop.
     why: the recursion is where a hostile image gets a reader to run forever.
-- [ ] Corrupt corpus: directory rec_len of 0, rec_len past the block end, a
+- [x] Corrupt corpus: directory rec_len of 0, rec_len past the block end, a
       name_len that overruns.
     why: a dirent loop that never advances is the classic hang.
-- [ ] A refusal has to be a refusal, not a wrong answer: assert the exit code
+- [x] A refusal has to be a refusal, not a wrong answer: assert the exit code
       and that nothing was printed as fact.
     why: METHOD's point about `unimpl()`. A missing feature's failure mode is
       quiet nonsense, not a missing message.

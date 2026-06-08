@@ -33,6 +33,10 @@ passed = []
 failed = []
 refusals = 0
 inconsistent = 0
+# Cases where extv objects and no outside authority does. Each one is
+# a deliberate difference with a reason written beside it, and the
+# count is printed so that the number cannot grow unnoticed.
+silent = 0
 
 
 def sh(*args):
@@ -118,6 +122,13 @@ def oracle_saw(img):
         return "e2fsck exit %d" % p.returncode
     if "trying backup blocks" in text:
         return "e2fsck fell back to the backups"
+    # e2fsck prints "Fix? no" for every problem it finds under -n, and
+    # for some of them it still exits 0. Changing the superblock's
+    # free inode count to 123456 gets "Free inodes count wrong
+    # (123456, counted=15826). Fix? no" and an exit status of zero, so
+    # the exit status alone called the damaged image clean.
+    if "Fix? no" in text:
+        return "e2fsck reported a problem and exited %d" % p.returncode
     d = subprocess.run(["dumpe2fs", "-h", img], stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL)
     if d.returncode != 0:
@@ -127,7 +138,7 @@ def oracle_saw(img):
 
 def case(label, base, breakit, cmd, want, e2fsck_sees=True, why="", msg=None):
     """Run one damaged-image case. cmd is the extv argv after the image."""
-    global refusals, inconsistent
+    global refusals, inconsistent, silent
     # The same damage behaves differently on different layouts, so the
     # base is part of the case's name.
     label = "%s [%s]" % (label, os.path.basename(base).replace(".img", ""))
@@ -191,6 +202,8 @@ def case(label, base, breakit, cmd, want, e2fsck_sees=True, why="", msg=None):
         failed.append("%s: extv says %s and no oracle sees anything wrong"
                       % (label, want))
         return
+    if not e2fsck_sees:
+        silent += 1
     if not e2fsck_sees and saw is not None:
         failed.append("%s: marked as damage no oracle sees, and %s"
                       % (label, saw))
@@ -308,10 +321,126 @@ def extent_cases(base):
          ["blocks", str(flat)], "refuse")
 
 
+# A directory block is a chain of entries, each saying how long it is.
+# The classic hang is a rec_len of zero, where the walk never
+# advances; the classic over-read is a name that claims to be longer
+# than the entry holding it.
+def directory_cases(base):
+    rootblk = bmap(base, 2) * blocksize(base)
+    bs = blocksize(base)
+    # Entry 0 is "." with rec_len 12, entry 1 is ".." and runs to the
+    # end of the block, so offset 12 is the one to damage.
+    dd = rootblk + 12
+
+    case("directory entry with rec_len 0", base,
+         lambda img: poke(img, dd + 4, u16le(0)), ["ls", "2"], "refuse",
+         msg="which cannot hold a header")
+    case("directory entry running past the end of its block", base,
+         lambda img: poke(img, dd + 4, u16le(bs)), ["ls", "2"], "refuse",
+         msg="runs past the end of the block")
+    case("directory entry whose length is not a multiple of 4", base,
+         lambda img: poke(img, dd + 4, u16le(13)), ["ls", "2"], "refuse",
+         msg="not a multiple of 4")
+    case("directory entry whose name overruns it", base,
+         lambda img: poke(img, dd + 6, bytes([255])), ["ls", "2"], "refuse",
+         msg="in a 12-byte entry" if False else "-byte name")
+    case("directory entry naming an inode that does not exist", base,
+         lambda img: poke(img, dd, u32le(0x7fffffff)), ["ls", "2"], "refuse",
+         msg="past the last inode")
+
+
+# The orphan list is a chain through i_dtime, so an image can point an
+# inode at itself and a reader that follows pointers never stops.
+def orphan_cases(base):
+    live = ino_of(base, "/small")
+    other = ino_of(base, "/empty")
+
+    # These go in through debugfs rather than by poking bytes, so that
+    # the superblock and inode checksums stay right and the only thing
+    # wrong with the image is the thing under test. Poking the bytes
+    # directly broke the superblock checksum, e2fsck refused to open
+    # the image at all, and the case would have passed for a reason
+    # that had nothing to do with the orphan list.
+    def dbg(img, *cmds):
+        for c in cmds:
+            subprocess.run(["debugfs", "-w", "-R", c, img],
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+
+    def loop(img):
+        dbg(img, "ssv last_orphan %d" % live,
+            "sif <%d> dtime %d" % (live, other),
+            "sif <%d> dtime %d" % (other, live))
+    # e2fsck does see this one, though not as a loop: an inode with a
+    # dtime set and links pointing at it is its own complaint.
+    case("orphan list that loops", base, loop, ["orphans"], "refuse",
+         msg="it is a loop")
+
+    case("orphan list naming an inode past the end", base,
+         lambda img: dbg(img, "ssv last_orphan 2147483647"), ["orphans"],
+         "refuse", e2fsck_sees=False, msg="past the last inode",
+         why="e2fsck leaves the orphan list alone on a cleanly unmounted image")
+
+
+# Damage that leaves the image readable and wrong. These are the ones
+# that have to come out as exit 1 rather than as a refusal, because
+# extv can read every structure involved and the numbers do not agree.
+def inconsistent_cases(base):
+    bs = blocksize(base)
+
+    def flip_block_bitmap(img):
+        out = sh("dumpe2fs", img)
+        m = re.search(r"^Group 0:.*?^  Block bitmap at (\d+)", out,
+                      re.M | re.S)
+        b = int(m.group(1))
+        old = peek(img, b * bs + 100, 1)
+        poke(img, b * bs + 100, bytes([old[0] ^ 0xff]))
+    case("a byte of the block bitmap inverted", base, flip_block_bitmap,
+         ["check"], "inconsistent")
+
+    def wrong_free_count(img):
+        first = 1 if bs == 1024 else 0
+        # bg_free_blocks_count_lo is 12 bytes into the first
+        # descriptor, which starts at the beginning of the table.
+        poke(img, (first + 1) * bs + 12, u16le(7))
+    case("a group descriptor's free block count changed", base,
+         wrong_free_count, ["check"], "inconsistent")
+
+    def wrong_links(img):
+        n = ino_of(img, "/small")
+        poke(img, inode_offset(img, n) + 26, u16le(7))
+    case("an inode's link count changed", base, wrong_links, ["check"],
+         "inconsistent")
+
+    def sb_free_inodes(img):
+        poke(img, 1024 + 16, u32le(123456))
+    case("the superblock's free inode count changed", base, sb_free_inodes,
+         ["check"], "inconsistent")
+
+    def sb_free_blocks(img):
+        poke(img, 1024 + 12, u32le(99))
+    case("the superblock's free block count changed", base, sb_free_blocks,
+         ["check"], "inconsistent")
+
+    def clear_inode_bit(img):
+        out = sh("dumpe2fs", img)
+        m = re.search(r"^Group 0:.*?^  Inode bitmap at (\d+)", out,
+                      re.M | re.S)
+        b = int(m.group(1)) * bs
+        n = ino_of(img, "/small") - 1
+        old = peek(img, b + n // 8, 1)[0]
+        poke(img, b + n // 8, bytes([old & ~(1 << (n % 8))]))
+    case("an in-use inode's bit cleared in the inode bitmap", base,
+         clear_inode_bit, ["check"], "inconsistent")
+
+
 def main():
     for base in BASES:
         superblock_cases(base)
         extent_cases(base)
+        directory_cases(base)
+        orphan_cases(base)
+        inconsistent_cases(base)
     for p in passed:
         print("ok   %s corrupt %s" % (NAME, p))
     for f in failed:
@@ -323,6 +452,7 @@ def main():
     # refusal is a result; a wrong answer is a defect, and a run that
     # reported them together would let one hide inside the other.
     print("COUNT corrupt_wrong_answers %d" % len(failed))
+    print("COUNT corrupt_oracle_silent %d" % silent)
     print("DONE")
 
 

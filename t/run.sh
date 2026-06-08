@@ -202,6 +202,13 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 	ec=$?
 	e2fsck -fn "$img" > "$scratch/fsck.out" 2>&1
 	fc=$?
+	# An exit status of zero is not enough from e2fsck. It prints
+	# "Fix? no" for every problem it finds under -n and for some of
+	# them it still exits 0, so a clean exit with that line in the
+	# output is e2fsck reporting a problem quietly.
+	if grep -q 'Fix? no' "$scratch/fsck.out"; then
+		fc=4
+	fi
 	if [ "$ec" = 0 ] && [ "$fc" = 0 ]; then
 		ok "$name check: both extv and e2fsck call it clean"
 		awk '/^summary/ {for (i = 2; i < NF; i += 2)
