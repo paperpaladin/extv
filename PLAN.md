@@ -175,7 +175,7 @@ its superblock and reporting what state it is in.
       and that nothing was printed as fact.
     why: METHOD's point about `unimpl()`. A missing feature's failure mode is
       quiet nonsense, not a missing message.
-- [ ] `make overread`: three planted one-past-the-end reads, each required to
+- [x] `make overread`: three planted one-past-the-end reads, each required to
       panic.
     why: watched to go red with the exact-sizing reverted, or it is decoration.
 - [ ] `make mutants`: mutate each decode path, confirm the suite goes red,
