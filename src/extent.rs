@@ -139,20 +139,31 @@ fn node(img: &Img, sb: &Sb, b: &mut Builder, v: &V, h: &Header, level: u16) -> R
         b.meta(etb_name(level), ix.leaf)?;
         let buf = img.block(ix.leaf)?;
         let cv = V::new(&buf, "extent node");
-        let ch = header(&cv, sb.block_size as usize)?;
-        // The depth has to fall by exactly one at each step. Anything
-        // else is either a loop or a lie, and both of them are how a
-        // damaged image gets a reader to run for ever.
-        if ch.depth + 1 != h.depth {
-            return bad(format!(
-                "extent node at block {} has depth {} under a node of depth {}",
-                ix.leaf, ch.depth, h.depth
-            ));
-        }
+        let ch = child_header(&cv, sb, h, ix.leaf)?;
         b.counts.depth = b.counts.depth.max(h.depth as u64);
         node(img, sb, b, &cv, &ch, level + 1)?;
     }
     Ok(())
+}
+
+// The header of a child node, with the one rule that keeps the
+// recursion finite: the depth has to fall by exactly one at each step.
+// Anything else is either a loop or a lie, and both are how a damaged
+// image gets a reader to run for ever.
+//
+// This lived in two places, the block walk and the row listing, and a
+// mutation of one of them left the other refusing with the same
+// message, so the mutant survived while the rule was gone from half
+// the program. One rule, one function.
+fn child_header(cv: &V, sb: &Sb, parent: &Header, leaf: u64) -> Result<Header> {
+    let ch = header(cv, sb.block_size as usize)?;
+    if ch.depth + 1 != parent.depth {
+        return bad(format!(
+            "extent node at block {} has depth {} under a node of depth {}",
+            leaf, ch.depth, parent.depth
+        ));
+    }
+    Ok(ch)
 }
 
 // debugfs names an extent tree block by the level it sits at: ETB0 for
@@ -255,13 +266,7 @@ fn rows_node(
             check_block(sb, ix.leaf, "extent index")?;
             let buf = img.block(ix.leaf)?;
             let cv = V::new(&buf, "extent node");
-            let ch = header(&cv, sb.block_size as usize)?;
-            if ch.depth + 1 != h.depth {
-                return bad(format!(
-                    "extent node at block {} has depth {} under a node of depth {}",
-                    ix.leaf, ch.depth, h.depth
-                ));
-            }
+            let ch = child_header(&cv, sb, h, ix.leaf)?;
             rows_node(img, sb, &cv, &ch, max_depth, level + 1, child_end, out)?;
         }
     }
