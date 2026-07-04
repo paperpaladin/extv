@@ -41,4 +41,12 @@ overread:
 		./t/overread.sh $$plant; \
 	done; $(CARGO) build --release -q
 
-.PHONY: all test clean overread
+# One decode rule broken at a time, with the suite run against each.
+# The table in t/mutants.py records which mutants are expected to
+# survive and why, and this target fails when reality disagrees with
+# the table in either direction. It rebuilds and runs the whole suite
+# once per mutant, so it is minutes, not seconds.
+mutants: all
+	python3 t/mutants.py $(MUTANT)
+
+.PHONY: all test clean overread mutants
