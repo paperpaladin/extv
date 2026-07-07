@@ -34,21 +34,34 @@ def debugfs(cmds):
 def parse_summary(text):
     """inode number -> list of tuples, from the stat BLOCKS/EXTENTS block.
 
-    Also returns the set of inodes debugfs calls fast symlinks, which is
-    the one place the two debugfs commands disagree with each other: a
-    symlink whose target sits in the sixty bytes that would hold block
-    pointers is reported by stat as a Fast link dest and by blocks as
-    four block numbers made of the target's own characters.
+    Also returns the set of inodes whose sixty bytes of block pointers
+    are not block pointers, which is where the two debugfs commands
+    disagree with each other. stat is right in both cases and blocks
+    reads the bytes anyway:
+
+      a symlink whose target fits inside the inode is a Fast link dest
+      to stat and four block numbers made of the target's characters
+      to blocks;
+
+      a device node holds its major and minor number there, and stat
+      prints them as a device number while blocks prints the first
+      word as a block.
     """
     out = {}
     fast = set()
+    noblocks = set()
     cur_ino = None
     collecting = False
     buf = []
     for line in text.splitlines():
         if line.startswith("Fast link dest:") and cur_ino is not None:
             fast.add(cur_ino)
+            noblocks.add(cur_ino)
             continue
+        m = re.match(r"^Inode: (\d+)\s+Type: (character special|block special"
+                     r"|FIFO|socket)", line)
+        if m:
+            noblocks.add(int(m.group(1)))
         m = re.match(r"^Inode: (\d+)\s+Type:", line)
         if m:
             if cur_ino is not None:
@@ -67,7 +80,7 @@ def parse_summary(text):
             buf.append(line.strip())
     if cur_ino is not None:
         out[cur_ino] = parse_entries(" ".join(buf))
-    return out, fast
+    return out, fast, noblocks
 
 
 def parse_entries(s):
@@ -125,7 +138,7 @@ def parse_flat(text, numeric_only):
 
 def main():
     stats = debugfs("".join("stat <%d>\n" % n for n in range(1, LAST + 1)))
-    want, fast = parse_summary(stats)
+    want, fast, noblocks = parse_summary(stats)
     flat_want = parse_flat(debugfs("".join("blocks <%d>\n" % n
                                            for n in range(1, LAST + 1))), True)
 
@@ -177,7 +190,7 @@ def main():
         if w:
             ninodes += 1
         nentries += len(w)
-        if n in fast:
+        if n in noblocks:
             continue
         fw = flat_want.get(n, [])
         fg = flat_got.get(n, [])
@@ -199,10 +212,12 @@ def main():
     print("COUNT map_runs %d" % nentries)
     print("COUNT map_block_numbers %d" % nblocks)
     print("COUNT fast_symlinks %d" % nfast)
+    print("COUNT special_inodes %d"
+          % sum(v.get("special", 0) for v in summary.values()))
     # What the walk actually reached on this image, summed over its
     # inodes. The driver adds these up across the corpus and refuses to
     # call a path tested when nothing reached it.
-    for key in ("ind", "dind", "tind", "etb", "inline", "uninit"):
+    for key in ("ind", "dind", "tind", "etb", "inline", "uninit", "special"):
         print("COUNT path_%s %d" % (key, sum(v.get(key, 0) for v in summary.values())))
     print("DONE")
 

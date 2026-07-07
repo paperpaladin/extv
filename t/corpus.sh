@@ -112,6 +112,20 @@ mk() {
 		debugfs -w -R "ssv last_orphan 13" "$img" >/dev/null 2>&1
 		;;
 	esac
+	# A character device, a block device and a FIFO. mke2fs copies
+	# none of these from a source tree and nothing here is allowed
+	# to mknod, so without debugfs the directory entry type field
+	# only ever holds 1, 2 and 7 and the other three names in the
+	# decode table agree with everything. The cd is load bearing:
+	# mknod /dev_c makes an entry whose name begins with a slash,
+	# which e2fsck calls an illegal character.
+	case ",$tags," in
+	*,devnodes,*)
+		printf 'cd /\nmknod dev_c c 5 1\nmknod dev_b b 8 16\nmknod fifo p\n' \
+			> "$dir/devcmds"
+		debugfs -w -f "$dir/devcmds" "$img" >/dev/null 2>&1
+		;;
+	esac
 	# A hole in the middle of the allocated blocks. Without one every
 	# free list in the corpus is a single run reaching the end of the
 	# group, and dumpe2fs prints a one-block run as a bare number and
@@ -155,7 +169,7 @@ mk() {
 python3 -c "import sys; sys.stdout.write('v' * 400)" > "$dir/eabig"
 
 mk ext2-1024-128        64M  ext2 1024 128 plain,orphan
-mk ext2-2048-128        64M  ext2 2048 128 plain
+mk ext2-2048-128        64M  ext2 2048 128 plain,devnodes
 mk ext2-4096-256        64M  ext2 4096 256 plain,gap
 mk ext2-1024-256-nosparse 64M ext2 1024 256 nosparse -O ^sparse_super,^resize_inode
 mk ext2-1024-128-nodirindex 64M ext2 1024 128 nodirindex -O ^dir_index
@@ -167,7 +181,8 @@ mk ext4-1024-256        64M  ext4 1024 256 journal,uninitgarbage,extent,64bit,cs
 mk ext4-2048-256        64M  ext4 2048 256 journal,jused,extent,64bit,csum
 mk ext4-4096-256        64M  ext4 4096 256 journal,orphan,extent,64bit,csum
 mk ext4-4096-128        64M  ext4 4096 128 extent,64bit,csum
-mk ext4-1024-256-nojournal 64M ext4 1024 256 extent,64bit,csum -O ^has_journal
+mk ext4-1024-256-nojournal 64M ext4 1024 256 devnodes,extent,64bit,csum \
+	-O ^has_journal
 mk ext4-1024-256-noextent 64M ext4 1024 256 noextent -O ^extent,^64bit
 mk ext4-2048-128-noextent-nocsum 64M ext4 2048 128 noextent,nocsum \
 	-O ^extent,^64bit,^metadata_csum

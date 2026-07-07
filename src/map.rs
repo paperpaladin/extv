@@ -35,6 +35,7 @@ pub struct Counts {
     pub uninit: u64,
     pub inline: u64,
     pub fast_symlink: u64,
+    pub special: u64,
 }
 
 pub struct Builder {
@@ -148,7 +149,12 @@ pub fn check_block(sb: &Sb, b: u64, what: &str) -> Result<()> {
 
 pub fn walk(img: &Img, sb: &Sb, ino: &Inode) -> Result<(Vec<Entry>, Counts)> {
     let mut b = Builder::new(sb);
-    if ino.has_inline_data() {
+    if ino.is_special() {
+        // No blocks, and not an empty file either: the block area
+        // holds a device number. Counted so the suite can insist the
+        // corpus has one, which needed debugfs mknod to arrange.
+        b.counts.special = 1;
+    } else if ino.has_inline_data() {
         b.counts.inline = 1;
     } else if ino.is_fast_symlink(sb.block_size) {
         b.counts.fast_symlink = 1;

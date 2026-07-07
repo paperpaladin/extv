@@ -131,6 +131,10 @@ MUTANTS = [
      "the wrapping form is the bug that was there: a 64-bit descriptor "
      "full of 0xff wraps to inside the filesystem"),
 
+    ("a device inode walked as a block map", "src/map.rs",
+     "    if ino.is_special() {", "    if false && ino.is_special() {",
+     "dies", ""),
+
     ("the directory hash read through an unsigned char", "src/hash.rs",
      "        (b as i8) as i32 as u32", "        b as u32", "dies", ""),
 

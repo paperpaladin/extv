@@ -59,6 +59,14 @@ impl Inode {
     pub fn is_device(&self) -> bool {
         matches!(self.mode & S_IFMT, S_IFBLK | S_IFCHR)
     }
+    // A device, a FIFO or a socket owns no data at all. The sixty
+    // bytes that hold block pointers in an ordinary inode hold the
+    // device number for the first two and nothing for the others, so
+    // walking them as a block map invents a block that debugfs does
+    // not report and that the bitmap does not have marked.
+    pub fn is_special(&self) -> bool {
+        matches!(self.mode & S_IFMT, S_IFBLK | S_IFCHR | S_IFIFO | S_IFSOCK)
+    }
     pub fn in_use(&self) -> bool {
         // An inode that was never allocated is all zeroes; a deleted one
         // keeps its mode but has a deletion time and no links.

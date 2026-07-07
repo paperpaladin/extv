@@ -255,7 +255,7 @@ pub fn blockmap(w: &mut impl Write, img: &Img, sb: &Sb, num: u32, flat: bool) ->
         writeln!(
             w,
             "summary data {} ind {} dind {} tind {} etb {} depth {} uninit {} \
-inline {} fast_symlink {}",
+inline {} fast_symlink {} special {}",
             counts.data,
             counts.ind,
             counts.dind,
@@ -264,7 +264,8 @@ inline {} fast_symlink {}",
             counts.depth,
             counts.uninit,
             counts.inline,
-            counts.fast_symlink
+            counts.fast_symlink,
+            counts.special
         )?;
     }
     Ok(())
