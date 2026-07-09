@@ -142,6 +142,11 @@ MUTANTS = [
      "    round!(h, b, c, d, a, input[4].wrapping_add(K3), 15);", "",
      "dies", ""),
 
+    ("a bitmap checksum taken over one byte too few", "src/csum.rs",
+     "pub fn bitmap(sb: &Sb, bits: &[u8]) -> u32 {\n    crc32c(seed(sb), bits)\n}",
+     "pub fn bitmap(sb: &Sb, bits: &[u8]) -> u32 {\n    crc32c(seed(sb), &bits[..bits.len() - 1])\n}",
+     "dies", ""),
+
     ("the crc32c polynomial changed by one bit", "src/crc.rs",
      "0x82F6_3B78 ^ (c >> 1)", "0x82F6_3B79 ^ (c >> 1)", "dies", ""),
 ]

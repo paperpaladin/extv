@@ -168,6 +168,51 @@ pub fn checksums(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
             )?;
         }
     }
+    // The two bitmap checksums, which metadata_csum adds and the older
+    // uninit_bg form does not have at all.
+    if sb.has_ro(crate::sb::RO_METADATA_CSUM) {
+        let gs = group::read_all(img, sb)?;
+        let mask = csum::bitmap_csum_width(sb);
+        for (g, gd) in gs.iter().enumerate() {
+            for (what, block, bits, stored, uninit) in [
+                (
+                    "blockbitmap",
+                    gd.block_bitmap,
+                    sb.clusters_per_group as u64,
+                    gd.block_bitmap_csum,
+                    gd.flags & group::BG_BLOCK_UNINIT != 0,
+                ),
+                (
+                    "inodebitmap",
+                    gd.inode_bitmap,
+                    sb.inodes_per_group as u64,
+                    gd.inode_bitmap_csum,
+                    gd.flags & group::BG_INODE_UNINIT != 0,
+                ),
+            ] {
+                // An uninitialised group has no bitmap worth
+                // checksumming and e2fsck's pass 5 skips it for the
+                // same reason. The stored value is zero there and
+                // computing one over whatever bytes are on disk would
+                // report every such group as broken.
+                if uninit {
+                    continue;
+                }
+                let n = ((bits + 7) / 8) as usize;
+                let raw = img.read_at(block * sb.block_size as u64, n)?;
+                let c = csum::bitmap(sb, &raw) & mask;
+                writeln!(
+                    w,
+                    "{} {} stored 0x{:08x} computed 0x{:08x} {}",
+                    what,
+                    g,
+                    stored,
+                    c,
+                    if stored == c { "ok" } else { "BAD" }
+                )?;
+            }
+        }
+    }
     Ok(())
 }
 

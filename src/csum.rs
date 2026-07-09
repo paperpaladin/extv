@@ -79,11 +79,25 @@ pub fn group_desc_applies(sb: &Sb) -> bool {
     sb.has_ro(RO_METADATA_CSUM) || sb.has_ro(RO_GDT_CSUM)
 }
 
-// A bitmap checksum covers the whole bitmap block, or the first
-// (inodes_per_group + 7) / 8 bytes for the inode bitmap, and is stored
-// in 16 or 32 bits depending on the descriptor size.
+// A bitmap checksum. The block bitmap's covers clusters_per_group / 8
+// bytes and the inode bitmap's covers (inodes_per_group + 7) / 8, which
+// is not the whole block in either case, and getting the length wrong
+// is the easy mistake because for most of the corpus the two happen to
+// be equal.
+//
+// Only the low sixteen bits are stored in a 32-byte descriptor; a
+// 64-byte one keeps the high half as well, so the comparison has to be
+// masked to what the filesystem can actually hold.
 pub fn bitmap(sb: &Sb, bits: &[u8]) -> u32 {
     crc32c(seed(sb), bits)
+}
+
+pub fn bitmap_csum_width(sb: &Sb) -> u32 {
+    if sb.is_64bit() && sb.desc_size >= 64 {
+        0xffff_ffff
+    } else {
+        0xffff
+    }
 }
 
 pub fn read_group_csum(img: &Img, sb: &Sb, g: u64) -> Result<(u16, u16)> {

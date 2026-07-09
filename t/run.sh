@@ -267,6 +267,8 @@ while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 		ok "$name csum ($nok recomputed and matching)"
 	fi
 	echo "COUNT checksums $nok" >> "$scratch/counts"
+	echo "COUNT bitmap_checksums $(grep -c '^blockbitmap\|^inodebitmap' \
+		"$scratch/csum.out")" >> "$scratch/counts"
 done < "$scratch/manifest"
 
 # Assert the paths ran. A crc16 implementation that no image reaches
@@ -293,6 +295,7 @@ for path in path_ind path_dind path_tind path_etb path_inline \
             dirent_wide_rec_len journal_none journal_features \
             bitmap_single_runs bitmap_range_runs bitmap_block_uninit \
             bitmap_inode_uninit inodes_deleted orphan_chain \
+            bitmap_checksums special_inodes \
             orphan_file_blocks orphan_lists_empty corrupt_refusals \
             htree_levels htree_version_0 htree_version_1 htree_version_2 \
             htree_version_3 htree_version_4 htree_version_5; do
