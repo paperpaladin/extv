@@ -105,3 +105,31 @@ pub fn read_group_csum(img: &Img, sb: &Sb, g: u64) -> Result<(u16, u16)> {
     let stored = u16::from_le_bytes([raw[30], raw[31]]);
     Ok((stored, group_desc(sb, g, &raw)))
 }
+
+// A directory block's checksum and an extent tree block's checksum are
+// built the same way: the filesystem seed, then the owning inode's
+// number and generation, then the bytes. The inode number is in the
+// seed rather than in the data, which is what stops a block copied
+// from one directory into another from validating.
+fn inode_seeded(sb: &Sb, inum: u32, generation: u32) -> u32 {
+    let c = crc32c(seed(sb), &inum.to_le_bytes());
+    crc32c(c, &generation.to_le_bytes())
+}
+
+// The tail of a directory block pretends to be an entry with inode 0
+// and occupies the last twelve bytes, and the checksum covers
+// everything before it.
+pub fn dirent_block(sb: &Sb, inum: u32, generation: u32, block: &[u8]) -> u32 {
+    let c = inode_seeded(sb, inum, generation);
+    crc32c(c, &block[..block.len() - 12])
+}
+
+// An extent tree block's tail sits after the space for eh_max entries,
+// whether or not that many are in use, so the length comes from the
+// maximum and not from the count. Using the count instead agrees on a
+// full node and disagrees on every other one.
+pub fn extent_block(sb: &Sb, inum: u32, generation: u32, block: &[u8], max: u16) -> u32 {
+    let n = 12 + 12 * max as usize;
+    let c = inode_seeded(sb, inum, generation);
+    crc32c(c, &block[..n])
+}

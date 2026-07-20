@@ -147,6 +147,15 @@ MUTANTS = [
      "pub fn bitmap(sb: &Sb, bits: &[u8]) -> u32 {\n    crc32c(seed(sb), &bits[..bits.len() - 1])\n}",
      "dies", ""),
 
+    ("an extent block's tail length taken from the count", "src/csum.rs",
+     "    let n = 12 + 12 * max as usize;",
+     "    let n = 12 + 12 * u16::from_le_bytes([block[2], block[3]]) as usize;",
+     "dies", ""),
+
+    ("a directory block's checksum taken over its own tail",
+     "src/csum.rs", "    crc32c(c, &block[..block.len() - 12])",
+     "    crc32c(c, block)", "dies", ""),
+
     ("the crc32c polynomial changed by one bit", "src/crc.rs",
      "0x82F6_3B78 ^ (c >> 1)", "0x82F6_3B79 ^ (c >> 1)", "dies", ""),
 ]

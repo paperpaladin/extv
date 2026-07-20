@@ -213,6 +213,71 @@ pub fn checksums(w: &mut impl Write, img: &Img, sb: &Sb) -> Result<()> {
             }
         }
     }
+    // The per-block checksums: one at the end of every directory
+    // block and one at the end of every extent tree block. Both are
+    // written by mke2fs and neither is printed by any oracle, so what
+    // is checked here is that extv rebuilds the number e2fsprogs put
+    // there.
+    if sb.has_ro(crate::sb::RO_METADATA_CSUM) {
+        for n in 1..=sb.inodes_count {
+            let ino = inode::read(img, sb, n)?;
+            if !check::in_use(sb, &ino) {
+                continue;
+            }
+            if ino.is_dir() && !ino.has_inline_data() {
+                for (_, phys) in map::data_blocks(img, sb, &ino)? {
+                    let buf = img.block(phys)?;
+                    let v = crate::img::V::new(&buf, "directory block");
+                    // Only a block that ends in a tail has a
+                    // checksum. An index node ends in a different one
+                    // and is left to the htree reader.
+                    let end = sb.block_size as usize - 12;
+                    if v.u32(end)? != 0 || v.u16(end + 4)? != 12 || v.u8(end + 7)? != dir::DIRENT_TAIL_TYPE
+                    {
+                        continue;
+                    }
+                    let stored = v.u32(end + 8)?;
+                    let c = csum::dirent_block(sb, n, ino.generation, &buf);
+                    writeln!(
+                        w,
+                        "direntcsum {} {} stored 0x{:08x} computed 0x{:08x} {}",
+                        n,
+                        phys,
+                        stored,
+                        c,
+                        if stored == c { "ok" } else { "BAD" }
+                    )?;
+                }
+            }
+            if ino.has_extents() {
+                let (entries, _) = map::walk(img, sb, &ino)?;
+                for e in entries {
+                    let phys = match e {
+                        map::Entry::Meta { phys, .. } => phys,
+                        _ => continue,
+                    };
+                    let buf = img.block(phys)?;
+                    let v = crate::img::V::new(&buf, "extent block");
+                    let max = v.u16(4)?;
+                    let at = 12 + 12 * max as usize;
+                    if at + 4 > buf.len() {
+                        continue;
+                    }
+                    let stored = v.u32(at)?;
+                    let c = csum::extent_block(sb, n, ino.generation, &buf, max);
+                    writeln!(
+                        w,
+                        "extentcsum {} {} stored 0x{:08x} computed 0x{:08x} {}",
+                        n,
+                        phys,
+                        stored,
+                        c,
+                        if stored == c { "ok" } else { "BAD" }
+                    )?;
+                }
+            }
+        }
+    }
     Ok(())
 }
 
