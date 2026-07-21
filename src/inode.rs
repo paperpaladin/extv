@@ -64,6 +64,13 @@ impl Inode {
     // device number for the first two and nothing for the others, so
     // walking them as a block map invents a block that debugfs does
     // not report and that the bitmap does not have marked.
+    // With the huge_file feature and this flag, i_blocks is counted
+    // in filesystem blocks rather than in 512-byte sectors. No image
+    // here has one, so the sector check leaves those inodes alone
+    // rather than guessing.
+    pub fn counts_blocks_in_clusters(&self) -> bool {
+        self.flags & 0x0004_0000 != 0
+    }
     pub fn is_special(&self) -> bool {
         matches!(self.mode & S_IFMT, S_IFBLK | S_IFCHR | S_IFIFO | S_IFSOCK)
     }

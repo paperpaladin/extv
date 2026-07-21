@@ -238,6 +238,19 @@ else
 fi
 
 echo
+echo "--- single-bit faults in the metadata, against e2fsck"
+# Both layouts. The 1024-byte ext2 image has no metadata_csum, so a
+# sweep over it alone never reaches the checksum comparisons, and
+# deleting the inode checksum check from `extv check` survived until
+# the ext4 image was added here.
+if [ -n "$corrupt_b1" ] && [ -n "$corrupt_b2" ]; then
+	EXTV="$EXTV" helper fuzz python3 "$here/fuzz.py" "$scratch" fuzz-ext2 \
+		"$corrupt_b2" 60 20261020
+	EXTV="$EXTV" helper fuzz python3 "$here/fuzz.py" "$scratch" fuzz-ext4 \
+		"$corrupt_b1" 60 20261021
+fi
+
+echo
 echo "--- block and inode bitmaps against the dumpe2fs free lists"
 while IFS="$(printf '\t')" read -r name img fstype bsize isize tags; do
 	helper "$name" python3 "$here/cmp_bitmaps.py" "$EXTV" "$img" "$name"
@@ -300,7 +313,7 @@ for path in path_ind path_dind path_tind path_etb path_inline \
             bitmap_single_runs bitmap_range_runs bitmap_block_uninit \
             bitmap_inode_uninit inodes_deleted orphan_chain \
             bitmap_checksums special_inodes dirent_checksums \
-            extent_block_checksums \
+            extent_block_checksums fuzz_refused fuzz_inconsistent \
             orphan_file_blocks orphan_lists_empty corrupt_refusals \
             htree_levels htree_version_0 htree_version_1 htree_version_2 \
             htree_version_3 htree_version_4 htree_version_5; do

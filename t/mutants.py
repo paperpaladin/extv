@@ -88,6 +88,27 @@ MUTANTS = [
      "        if inodes_used.get(i) == ib.get(i) {",
      "        if true || inodes_used.get(i) == ib.get(i) {", "dies", ""),
 
+    ("i_blocks never compared with the blocks an inode owns",
+     "src/check.rs", "        if !ino.counts_blocks_in_clusters() {",
+     "        if false && !ino.counts_blocks_in_clusters() {", "dies",
+     "found by the single-bit sweep, not by a case anyone wrote"),
+
+    ("the inode checksum not verified by check", "src/check.rs",
+     "        if sb.has_ro(crate::sb::RO_METADATA_CSUM) {\n            let c = crate::csum::inode",
+     "        if false && sb.has_ro(crate::sb::RO_METADATA_CSUM) {\n            let c = crate::csum::inode",
+     "dies",
+     "survived a sweep over the ext2 base alone, which has no "
+     "metadata_csum: it needed the sweep to run over both layouts"),
+
+    ("a free inode left on the orphan list not noticed", "src/check.rs",
+     "        if ino.links_count == 0 && ino.dtime != 0 && ino.dtime < sb.inodes_count {",
+     "        if false && ino.links_count == 0 && ino.dtime != 0 && ino.dtime < sb.inodes_count {",
+     "dies", ""),
+
+    ("the bitmap padding past the end of the filesystem not checked",
+     "src/check.rs", "    if let Some(gd) = gs.last() {",
+     "    if let Some(gd) = gs.last().filter(|_| false) {", "dies", ""),
+
     ("a deleted inode's dtime ignored", "src/check.rs",
      "    i.links_count > 0 && i.dtime == 0", "    i.links_count > 0",
      "survives",

@@ -47,7 +47,7 @@ impl Bits {
 // off the end of the bitmap into the block's padding, which on a 1024
 // byte block with 8192 clusters per group is where the bitmap happens
 // to end anyway.
-fn read_one(img: &Img, block: u64, bits: u64) -> Result<Vec<u8>> {
+pub fn read_one(img: &Img, block: u64, bits: u64) -> Result<Vec<u8>> {
     let bytes = ((bits + 7) / 8) as usize;
     if bytes > img.bsize as usize {
         return bad(format!(
