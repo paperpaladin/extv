@@ -314,6 +314,7 @@ for path in path_ind path_dind path_tind path_etb path_inline \
             bitmap_inode_uninit inodes_deleted orphan_chain \
             bitmap_checksums special_inodes dirent_checksums \
             extent_block_checksums fuzz_refused fuzz_inconsistent \
+            corrupt_shared \
             orphan_file_blocks orphan_lists_empty corrupt_refusals \
             htree_levels htree_version_0 htree_version_1 htree_version_2 \
             htree_version_3 htree_version_4 htree_version_5; do

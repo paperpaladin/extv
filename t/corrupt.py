@@ -37,6 +37,9 @@ inconsistent = 0
 # a deliberate difference with a reason written beside it, and the
 # count is printed so that the number cannot grow unnoticed.
 silent = 0
+# Paths a damaged image reaches that no clean one does, counted so the
+# suite can insist they were reached at all.
+tags = {}
 
 
 def sh(*args):
@@ -136,7 +139,8 @@ def oracle_saw(img):
     return None
 
 
-def case(label, base, breakit, cmd, want, e2fsck_sees=True, why="", msg=None):
+def case(label, base, breakit, cmd, want, e2fsck_sees=True, why="", msg=None,
+         tag=None):
     """Run one damaged-image case. cmd is the extv argv after the image."""
     global refusals, inconsistent, silent
     # The same damage behaves differently on different layouts, so the
@@ -194,6 +198,13 @@ def case(label, base, breakit, cmd, want, e2fsck_sees=True, why="", msg=None):
         if "verdict inconsistent" not in out:
             failed.append("%s: exited 1 without an inconsistent verdict" % label)
             return
+        # For an inconsistency the reason is on stdout rather than on
+        # stderr, and it is checked for the same reason: an image can
+        # be inconsistent for more than one thing at a time.
+        if msg is not None and msg not in out:
+            failed.append("%s: inconsistent for the wrong reason: wanted %r, "
+                          "said %r" % (label, msg, out[:200]))
+            return
         inconsistent += 1
     else:
         raise SystemExit("corrupt.py: unknown expectation %r" % want)
@@ -209,6 +220,8 @@ def case(label, base, breakit, cmd, want, e2fsck_sees=True, why="", msg=None):
                       % (label, saw))
         return
     passed.append("%s (%s, %s)" % (label, want, saw if saw else why))
+    if tag:
+        tags[tag] = tags.get(tag, 0) + 1
 
 
 # ---------------------------------------------------------------- cases
@@ -422,6 +435,21 @@ def inconsistent_cases(base):
     case("the superblock's free block count changed", base, sb_free_blocks,
          ["check"], "inconsistent")
 
+    # Two inodes pointing at the same block. e2fsck runs an extra
+    # pass for this and calls it multiply-claimed; extv names both
+    # inodes. The path that reports it was dead code until this case
+    # existed, because nothing in a corpus built by mke2fs shares a
+    # block.
+    def share_a_block(img):
+        a = ino_of(img, "/b1023")
+        b = int(sh("debugfs", "-R", "bmap /small 0", img).strip().split()[-1])
+        subprocess.run(["debugfs", "-w", "-R", "sif <%d> block[0] %d" % (a, b),
+                        img], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+    if not has_extents(base):
+        case("one block claimed by two inodes", base, share_a_block,
+             ["check"], "inconsistent", msg="claimed by inode", tag="shared")
+
     def clear_inode_bit(img):
         out = sh("dumpe2fs", img)
         m = re.search(r"^Group 0:.*?^  Inode bitmap at (\d+)", out,
@@ -453,6 +481,8 @@ def main():
     # reported them together would let one hide inside the other.
     print("COUNT corrupt_wrong_answers %d" % len(failed))
     print("COUNT corrupt_oracle_silent %d" % silent)
+    for k in sorted(tags):
+        print("COUNT corrupt_%s %d" % (k, tags[k]))
     print("DONE")
 
 

@@ -109,6 +109,12 @@ MUTANTS = [
      "src/check.rs", "    if let Some(gd) = gs.last() {",
      "    if let Some(gd) = gs.last().filter(|_| false) {", "dies", ""),
 
+    ("a block claimed by two inodes not reported", "src/check.rs",
+     "            if prev != 0 && prev != num {",
+     "            if false && prev != 0 && prev != num {", "dies",
+     "dead code until a damaged image shared a block: nothing built "
+     "by mke2fs does"),
+
     ("a deleted inode's dtime ignored", "src/check.rs",
      "    i.links_count > 0 && i.dtime == 0", "    i.links_count > 0",
      "survives",
