@@ -120,8 +120,7 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
                 }
             }
         }
-        let mut mine: Vec<u64> = Vec::new();
-        let mut claim = |b: u64, problems: &mut Vec<String>, mine: &mut Vec<u64>| {
+        let mut claim = |b: u64, problems: &mut Vec<String>| {
             if b < sb.first_data_block as u64 || b >= sb.blocks_count {
                 problems.push(format!(
                     "inode {} claims block {}, which is outside the filesystem",
@@ -140,22 +139,48 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
             }
             owner[c as usize] = num;
             blocks_claimed += 1;
-            mine.push(c);
             used.set(c);
         };
-        if ino.file_acl != 0 {
-            claim(ino.file_acl, &mut problems, &mut mine);
-        }
+        // i_blocks is counted alongside the walk, because the rule
+        // depends on the order the blocks come in. A block is counted
+        // unless bigalloc is on, the block before it was in the same
+        // cluster, and the block's place inside that cluster matches
+        // its logical place inside the file. That last clause is what
+        // keeps metadata counted: an indirect block has no logical
+        // position in the file, so it never merges with its
+        // neighbour, which is why the resize inode comes to 32
+        // clusters on an image with 16 blocks to a cluster and 4 if
+        // the distinct clusters are counted instead.
+        let mut prev: Option<u64> = None;
+        let mut sectors = 0u64;
         let (entries, _) = map::walk(img, sb, &ino)?;
         for e in entries {
             match e {
-                Entry::Data { plo, phi, .. } => {
-                    for b in plo..=phi {
-                        claim(b, &mut problems, &mut mine);
+                Entry::Data { lo, hi, plo, .. } => {
+                    for k in 0..=(hi - lo) {
+                        let b = plo + k;
+                        claim(b, &mut problems);
+                        let merged = ratio > 1
+                            && prev.map_or(false, |p| p / ratio == b / ratio)
+                            && b % ratio == (lo + k) % ratio;
+                        if !merged {
+                            sectors += 1;
+                        }
+                        prev = Some(b);
                     }
                 }
-                Entry::Meta { phys, .. } => claim(phys, &mut problems, &mut mine),
+                Entry::Meta { phys, .. } => {
+                    claim(phys, &mut problems);
+                    sectors += 1;
+                    prev = Some(phys);
+                }
             }
+        }
+        // e2fsck adds the attribute block after the walk, and it has
+        // no logical position either.
+        if ino.file_acl != 0 {
+            claim(ino.file_acl, &mut problems);
+            sectors += 1;
         }
         // i_blocks counts 512-byte sectors, not blocks, and it covers
         // the indirect and extent tree blocks and the attribute block
@@ -163,21 +188,7 @@ pub fn run(img: &Img, sb: &Sb) -> Result<Report> {
         // flag it is in filesystem blocks instead, which no image here
         // has, so that case is left alone rather than guessed at.
         if !ino.counts_blocks_in_clusters() {
-            // Under bigalloc a file owns whole clusters and i_blocks
-            // counts every sector of them, used or not, so the count
-            // is of distinct clusters. Without bigalloc it is a count
-            // of block references and not of distinct blocks: an
-            // inode that names the same block twice has it counted
-            // twice. Deduplicating in both cases hid a corruption
-            // that added a pointer to a block the inode already had,
-            // where e2fsck saw two more sectors and extv saw none.
-            let want = if ratio == 1 {
-                mine.len() as u64 * (sb.block_size as u64 / 512)
-            } else {
-                mine.sort_unstable();
-                mine.dedup();
-                mine.len() as u64 * (sb.cluster_size as u64 / 512)
-            };
+            let want = sectors * (sb.block_size as u64 / 512) * ratio;
             if want != ino.blocks {
                 blocks_wrong += 1;
                 if blocks_wrong <= 8 {

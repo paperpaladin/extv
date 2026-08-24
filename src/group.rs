@@ -55,7 +55,7 @@ pub fn desc_location(sb: &Sb, g: u64) -> Result<(u64, usize)> {
         let first = metagroup * per_block;
         group_first_block(sb, first) + if has_super(sb, first) { 1 } else { 0 }
     } else {
-        sb.first_data_block as u64 + 1 + metagroup
+        super_position(sb, 0) + 1 + metagroup
     };
     let off = (g % per_block) as usize * sb.desc_size as usize;
     Ok((block, off))
@@ -63,6 +63,25 @@ pub fn desc_location(sb: &Sb, g: u64) -> Result<(u64, usize)> {
 
 pub fn group_first_block(sb: &Sb, g: u64) -> u64 {
     sb.first_data_block as u64 + g * sb.blocks_per_group as u64
+}
+
+// Where group g's superblock copy sits, which is its first block
+// except in one case: bigalloc with a 1024-byte block sets
+// s_first_data_block to 0, and the superblock still lives at byte
+// 1024, which is block 1. e2fsprogs carries the same special case in
+// ext2fs_super_and_bgd_loc2 and calls it out in a comment.
+//
+// Without it extv read the group descriptor table out of the
+// superblock itself and reported a block bitmap at block
+// 562949953425408, which is the superblock's block count in the high
+// half of a 64-bit field.
+pub fn super_position(sb: &Sb, g: u64) -> u64 {
+    let b = group_first_block(sb, g);
+    if b == 0 && sb.block_size == 1024 {
+        1
+    } else {
+        b
+    }
 }
 
 // Groups that carry a backup superblock. With sparse_super that is 0, 1
@@ -203,7 +222,7 @@ pub fn gdt_blocks(sb: &Sb) -> u64 {
 // free, which is how this was found.
 pub fn super_and_gdt_blocks(sb: &Sb, g: u64) -> Vec<u64> {
     let mut out = Vec::new();
-    let first = group_first_block(sb, g);
+    let first = super_position(sb, g);
     let sup = has_super(sb, g);
     if sup {
         out.push(first);

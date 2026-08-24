@@ -197,6 +197,13 @@ mk ext4-1024-256-uninitbg-32 64M ext4 1024 256 uninitbg,extent \
 	-O ^metadata_csum,^64bit,uninit_bg
 mk ext4-4096-256-bigalloc 64M ext4 4096 256 bigalloc,gap,extent,64bit,csum \
 	-O bigalloc -C 16384
+# A second cluster ratio, and the only block size where the
+# superblock is not in block 0. The first bigalloc image has a ratio
+# of 4, where several of the cluster expressions happen to agree with
+# a wrong one; 16 blocks to a cluster with first_data_block at 1 does
+# not.
+mk ext4-1024-256-bigalloc16 64M ext4 1024 256 bigalloc,extent,64bit,csum \
+	-O bigalloc -C 16384
 mk ext4-1024-256-inline 64M  ext4 1024 256 inline,extent,64bit,csum -O inline_data
 mk ext4-1024-256-metabg 64M  ext4 1024 256 metabg,extent,64bit,csum \
 	-O meta_bg,^resize_inode

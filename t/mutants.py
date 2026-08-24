@@ -115,6 +115,17 @@ MUTANTS = [
      "dead code until a damaged image shared a block: nothing built "
      "by mke2fs does"),
 
+    ("the superblock position on a 1024-byte bigalloc image",
+     "src/group.rs", "    if b == 0 && sb.block_size == 1024 {",
+     "    if false && b == 0 && sb.block_size == 1024 {", "dies", ""),
+
+    ("the cluster merge without the logical position", "src/check.rs",
+     "                            && b % ratio == (lo + k) % ratio;",
+     "                            && true;", "survives",
+     "the clause only matters for a data block that lands in the same "
+     "cluster as the one before it at a mismatched offset inside that "
+     "cluster, which is a fragmented allocation mke2fs does not produce"),
+
     ("a deleted inode's dtime ignored", "src/check.rs",
      "    i.links_count > 0 && i.dtime == 0", "    i.links_count > 0",
      "survives",
