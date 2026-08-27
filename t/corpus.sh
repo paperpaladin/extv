@@ -152,6 +152,12 @@ mk() {
 	debugfs -w -R "ea_set /small user.one firstvalue" "$img" >/dev/null 2>&1
 	debugfs -w -R "ea_set /small user.two second" "$img" >/dev/null 2>&1
 	debugfs -w -R "ea_set -f $dir/eabig /b1023 user.big" "$img" >/dev/null 2>&1
+	# The other two prefixes that are stored as a one-byte index.
+	# Without these the corpus only ever reached user. and
+	# security., so three quarters of the prefix table agreed with
+	# anything.
+	debugfs -w -R "ea_set /small trusted.one trustedvalue" "$img" >/dev/null 2>&1
+	debugfs -w -R "ea_set /small system.two systemvalue" "$img" >/dev/null 2>&1
 	# A corpus image that is already inconsistent makes every later
 	# agreement meaningless, so this is checked at build time and is
 	# fatal rather than counted.

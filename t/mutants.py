@@ -126,6 +126,9 @@ MUTANTS = [
      "cluster as the one before it at a mismatched offset inside that "
      "cluster, which is a fragmented allocation mke2fs does not produce"),
 
+    ("the trusted. attribute prefix dropped from the table",
+     "src/xattr.rs", '    (4, "trusted."),\n', "", "dies", ""),
+
     ("a deleted inode's dtime ignored", "src/check.rs",
      "    i.links_count > 0 && i.dtime == 0", "    i.links_count > 0",
      "survives",

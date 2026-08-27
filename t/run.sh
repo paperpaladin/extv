@@ -309,6 +309,7 @@ echo "--- paths reached by the corpus"
 for path in path_ind path_dind path_tind path_etb path_inline \
             fast_symlinks extent_uninit extent_rows_deep \
             ea_in_inode ea_in_block dirent_tails dirs_inline path_special \
+            ea_prefix_user ea_prefix_trusted ea_prefix_security ea_prefix_system \
             dirent_wide_rec_len journal_none journal_features \
             bitmap_single_runs bitmap_range_runs bitmap_block_uninit \
             bitmap_inode_uninit inodes_deleted orphan_chain \

@@ -76,6 +76,7 @@ def main():
             got.setdefault(cur, []).append((f[2], int(f[3]), f[5] if len(f) > 5 else ""))
 
     bad = []
+    prefixes = {}
     nattr = 0
     nbytes = 0
     for n in sorted(set(want) | set(got)):
@@ -88,6 +89,13 @@ def main():
         for (a, ln, hexv) in g:
             nattr += 1
             nbytes += ln
+            # Which of the one-byte prefix indices the name came back
+            # with. A prefix no attribute in the corpus uses is a row
+            # of the table that agrees with anything.
+            for p in ("user.", "trusted.", "security.", "system."):
+                if a.startswith(p):
+                    prefixes[p] = prefixes.get(p, 0) + 1
+                    break
             if values.get((n, a), "") != hexv:
                 bad.append("inode %d %s value: debugfs=%s... extv=%s..."
                            % (n, a, values.get((n, a), "")[:24], hexv[:24]))
@@ -101,6 +109,8 @@ def main():
     print("COUNT ea_value_bytes %d" % nbytes)
     print("COUNT ea_in_inode %d" % sources.get("inode", 0))
     print("COUNT ea_in_block %d" % sources.get("block", 0))
+    for p, n in sorted(prefixes.items()):
+        print("COUNT ea_prefix_%s %d" % (p.rstrip("."), n))
     print("DONE")
 
 
