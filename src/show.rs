@@ -1,4 +1,4 @@
-use crate::err::Result;
+use crate::err::{bad, Result};
 use crate::csum;
 use crate::group;
 use crate::bitmap;
@@ -479,17 +479,41 @@ pub fn ea(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
 pub fn cat(w: &mut impl Write, img: &Img, sb: &Sb, num: u32) -> Result<()> {
     let ino = inode::read(img, sb, num)?;
     if ino.has_inline_data() {
-        let attrs = xattr::read(img, sb, &ino)?;
-        let mut buf = ino.block.to_vec();
-        if let Some(tail) = xattr::inline_tail(&attrs) {
-            buf.extend_from_slice(&tail.value);
-        }
-        buf.truncate(ino.size as usize);
-        w.write_all(&buf)?;
+        w.write_all(&xattr::inline_data(img, sb, &ino)?)?;
         return Ok(());
     }
     if ino.is_fast_symlink(sb.block_size) {
-        let n = (ino.size as usize).min(60);
+        // The target is stored in i_block and terminated there, so
+        // its length is in the bytes and not in i_size. i_size is
+        // read off the image and bounded by nothing, and this used to
+        // be `(ino.size as usize).min(60)`, so a five-byte target
+        // under a forged i_size of 60 came out as the target followed
+        // by 55 bytes of whatever else was in the slot: on a reused
+        // inode, the block pointers it held before. The .min(60) kept
+        // the read inside the array, so Rust's bound did not fire and
+        // nothing anywhere reported it.
+        //
+        // The length comes from the NUL now and i_size has to agree
+        // with it. e2fsck applies the same rule and calls the symlink
+        // invalid when the two differ by a byte in either direction,
+        // which is what t/corrupt.py checks against.
+        let n = match ino.block.iter().position(|&b| b == 0) {
+            Some(n) => n,
+            None => {
+                return bad(format!(
+                    "inode {} is a fast symlink whose target fills all 60 \
+                     bytes of the inode with no terminator",
+                    num
+                ))
+            }
+        };
+        if ino.size != n as u64 {
+            return bad(format!(
+                "inode {} is a fast symlink declaring a size of {}, but its \
+                 target is {} bytes long",
+                num, ino.size, n
+            ));
+        }
         w.write_all(&ino.block[..n])?;
         return Ok(());
     }

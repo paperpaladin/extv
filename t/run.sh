@@ -230,11 +230,15 @@ echo "--- damaged images: refusals counted apart from wrong answers"
 # tree to break.
 corrupt_b1=$(awk -F'\t' '$1 == "ext4-4096-256" {print $2}' "$scratch/manifest")
 corrupt_b2=$(awk -F'\t' '$1 == "ext2-1024-128" {print $2}' "$scratch/manifest")
-if [ -z "$corrupt_b1" ] || [ -z "$corrupt_b2" ]; then
-	no "corrupt: the corpus no longer holds the two base images"
+# A third, because inline_data puts a file's contents in the inode and
+# the only size bound on them is the inode's own, which no other base
+# here has. The feature is not on in either of the two above.
+corrupt_b3=$(awk -F'\t' '$1 == "ext4-1024-256-inline" {print $2}' "$scratch/manifest")
+if [ -z "$corrupt_b1" ] || [ -z "$corrupt_b2" ] || [ -z "$corrupt_b3" ]; then
+	no "corrupt: the corpus no longer holds the three base images"
 else
 	EXTV="$EXTV" helper corrupt python3 "$here/corrupt.py" "$scratch" \
-		corrupt "$corrupt_b1" "$corrupt_b2"
+		corrupt "$corrupt_b1" "$corrupt_b2" "$corrupt_b3"
 fi
 
 echo
@@ -315,7 +319,7 @@ for path in path_ind path_dind path_tind path_etb path_inline \
             bitmap_inode_uninit inodes_deleted orphan_chain \
             bitmap_checksums special_inodes dirent_checksums \
             extent_block_checksums fuzz_refused fuzz_inconsistent \
-            corrupt_shared \
+            corrupt_shared corrupt_symlink_size corrupt_inline_size \
             orphan_file_blocks orphan_lists_empty corrupt_refusals \
             htree_levels htree_version_0 htree_version_1 htree_version_2 \
             htree_version_3 htree_version_4 htree_version_5; do
@@ -326,6 +330,16 @@ for path in path_ind path_dind path_tind path_etb path_inline \
 		no "corpus reaches $path (never: that code is untested)"
 	fi
 done
+
+echo
+echo "--- the mutation table still quotes code that exists"
+# The sweep in t/mutants.py is an hour and nobody is present for it,
+# so this asks the one question that rots on its own: does every
+# pattern still appear exactly once in the file it names. One entry
+# had been dead for several commits because a line was inserted into
+# the branch it quoted, and a dead entry is neither killed nor
+# surviving, it does nothing while the total still reads as complete.
+helper mutants python3 "$here/mutants.py" --check
 
 echo
 echo "--- measured totals"

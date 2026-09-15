@@ -226,6 +226,20 @@ def case(label, base, breakit, cmd, want, e2fsck_sees=True, why="", msg=None,
 
 # ---------------------------------------------------------------- cases
 
+def dbg(img, *cmds):
+    """Edit an image through debugfs, which recomputes the checksums.
+
+    Poking a field by hand leaves the inode or superblock checksum
+    wrong as well, and then e2fsck complains about the checksum rather
+    than about the field, so the case passes for the wrong reason.
+    Anything poked by hand is poked first and the debugfs edit comes
+    last, because that is what rewrites the checksum over it.
+    """
+    for c in cmds:
+        subprocess.run(["debugfs", "-w", "-R", c, img],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def truncate_to(n):
     def f(img):
         with open(img, "r+b") as fh:
@@ -368,18 +382,12 @@ def orphan_cases(base):
     live = ino_of(base, "/small")
     other = ino_of(base, "/empty")
 
-    # These go in through debugfs rather than by poking bytes, so that
-    # the superblock and inode checksums stay right and the only thing
-    # wrong with the image is the thing under test. Poking the bytes
-    # directly broke the superblock checksum, e2fsck refused to open
-    # the image at all, and the case would have passed for a reason
-    # that had nothing to do with the orphan list.
-    def dbg(img, *cmds):
-        for c in cmds:
-            subprocess.run(["debugfs", "-w", "-R", c, img],
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
-
+    # Damage goes in through debugfs rather than by poking bytes, so
+    # that the superblock and inode checksums stay right and the only
+    # thing wrong with the image is the thing under test. Poking the
+    # bytes directly broke the superblock checksum, e2fsck refused to
+    # open the image at all, and the case would have passed for a
+    # reason that had nothing to do with the orphan list.
     def loop(img):
         dbg(img, "ssv last_orphan %d" % live,
             "sif <%d> dtime %d" % (live, other),
@@ -393,6 +401,73 @@ def orphan_cases(base):
          lambda img: dbg(img, "ssv last_orphan 2147483647"), ["orphans"],
          "refuse", e2fsck_sees=False, msg="past the last inode",
          why="e2fsck leaves the orphan list alone on a cleanly unmounted image")
+
+
+# A fast symlink keeps its target in the sixty bytes of i_block and
+# terminates it there, so the length of the target is in the bytes and
+# not in i_size. i_size is read off the image and nothing bounds it.
+def symlink_cases(base):
+    n = ino_of(base, "/sym_short")
+    if "inline" in sh("debugfs", "-R", "stat <%d>" % n, base):
+        # With inline_data the target is stored as inline data rather
+        # than as a fast symlink, so there is nothing to test here.
+        return
+    # Stale pointers where the target is not. A reused inode's i_block
+    # holds whatever the slot pointed at before, and these are the
+    # recognisable stand-in: if extv prints the sixty bytes i_size
+    # asks for rather than refusing, the output carries this text.
+    # The target is "small", so i_block[2] onwards is past its NUL.
+    #
+    # It goes in through debugfs rather than as a poke because of
+    # metadata_csum: poking i_block leaves the inode checksum wrong,
+    # and then debugfs will not read the inode at all ("Inode
+    # checksum does not match inode") so the size edit is silently
+    # dropped. On the two ext4 bases the first version of this case
+    # left the image untouched and extv was right to print the real
+    # target, which read as the fix not working.
+    STALE = 0x4141_4141
+
+    def forge(size):
+        def f(img):
+            dbg(img, "sif <%d> block[2] %d" % (n, STALE),
+                "sif <%d> block[3] %d" % (n, STALE),
+                "sif <%d> size %d" % (n, size))
+        return f
+
+    # 60 is the case that mattered: the old code was
+    # `(ino.size as usize).min(60)`, so the read stayed inside the
+    # array, Rust's bound did not fire, and ten bytes of target came
+    # out followed by fifty bytes of whatever else was in the inode.
+    case("fast symlink whose i_size covers the whole inode", base,
+         forge(60), ["cat", str(n)], "refuse", msg="target is 5 bytes long",
+         tag="symlink_size")
+    # The other direction, because the rule is an equality and not an
+    # upper bound. e2fsck calls the symlink invalid for both.
+    case("fast symlink whose i_size is short of its target", base,
+         forge(3), ["cat", str(n)], "refuse", msg="target is 5 bytes long")
+
+
+# An inline_data inode holds its contents in i_block and spills the
+# rest into system.data, so the two together are all the file there
+# is. A size larger than that asks for bytes that do not exist.
+def inline_cases(base):
+    if "inline_data" not in sh("dumpe2fs", "-h", base):
+        return
+    n = ino_of(base, "/inline61")
+    # Neither oracle objects to this one and they disagree with each
+    # other about what to do: e2fsck 1.47.2 does not compare an
+    # inline inode's i_size against the bytes it holds and calls the
+    # image clean, and debugfs dump clamps to what is there and
+    # writes 61 bytes without saying that the inode asked for 200.
+    # extv refuses, because a file whose data is inline cannot be
+    # longer than the inline area. It is counted as a deliberate
+    # difference rather than passed quietly.
+    case("inline file whose i_size is past the end of the inline area", base,
+         lambda img: dbg(img, "sif <%d> size 200" % n), ["cat", str(n)],
+         "refuse", e2fsck_sees=False, msg="only 61 bytes are inline",
+         why="e2fsck does not check an inline inode's size and debugfs dump "
+             "clamps to what is there",
+         tag="inline_size")
 
 
 # Damage that leaves the image readable and wrong. These are the ones
@@ -468,6 +543,8 @@ def main():
         extent_cases(base)
         directory_cases(base)
         orphan_cases(base)
+        symlink_cases(base)
+        inline_cases(base)
         inconsistent_cases(base)
     for p in passed:
         print("ok   %s corrupt %s" % (NAME, p))

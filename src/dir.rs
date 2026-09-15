@@ -210,16 +210,12 @@ pub fn read(img: &Img, sb: &Sb, ino: &Inode) -> Result<DirRead> {
 // file type of 0, and so does this, because a directory listing that
 // is missing its own two entries is not the same listing.
 fn read_inline(img: &Img, sb: &Sb, ino: &Inode, out: &mut DirRead) -> Result<()> {
-    let attrs = crate::xattr::read(img, sb, ino)?;
-    let mut buf = ino.block.to_vec();
-    if let Some(tail) = crate::xattr::inline_tail(&attrs) {
-        buf.extend_from_slice(&tail.value);
-    }
+    // The size bound lives in xattr::inline_data, which both inline
+    // readers go through: a size larger than the inline area is a
+    // corrupt inode and not a directory to be parsed.
+    let buf = crate::xattr::inline_data(img, sb, ino)?;
     if buf.len() < 4 {
         return bad("inline directory is shorter than its parent pointer");
-    }
-    if (ino.size as usize) < buf.len() {
-        buf.truncate(ino.size as usize);
     }
     let parent = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
     out.entries.push(DirEntry {

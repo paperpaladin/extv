@@ -13,7 +13,12 @@ all: $(BIN)
 $(BIN): $(wildcard src/*.rs) Cargo.toml
 	$(CARGO) build --release
 
-test: all
+# overread comes before the suite because it is a gate, and a gate
+# nothing runs is not one. This target sat in the Makefile for nine
+# commits with nothing invoking it, so the three plants had never been
+# watched go red on the way past a single run. bpfdis and ociv both
+# had the same defect the same week, and the fix is this one line.
+test: all overread
 	./t/run.sh
 
 clean:

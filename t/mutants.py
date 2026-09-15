@@ -16,6 +16,11 @@ which is the same defect as a test that runs nothing.
 Run it through `make mutants`. It rebuilds and runs the whole suite
 once per mutant, so it takes about as long as the number of mutants
 times a minute.
+
+`--check` asks only the question that rots without anyone watching:
+whether every pattern above still appears exactly once in the file it
+names. That takes under a second, so `make test` asks it on every run
+rather than leaving it to the hour-long sweep nobody is present for.
 """
 import os
 import re
@@ -67,9 +72,16 @@ MUTANTS = [
      "needed an image with 0xff written over such a bitmap; it survived "
      "until that image was built"),
 
+    # Re-quoted: `sectors += 1;` was added inside this branch when
+    # i_blocks started being compared, so the old quotation matched
+    # nothing and the entry was neither killed nor surviving. It did
+    # nothing at all, and the run still reported a total. The
+    # mutation now drops only the claim, which is what the label
+    # says, and leaves the sector count alone.
     ("an inode's attribute block not claimed", "src/check.rs",
-     "        if ino.file_acl != 0 {\n            claim(ino.file_acl, &mut problems);\n        }",
-     "", "dies", ""),
+     "        if ino.file_acl != 0 {\n            claim(ino.file_acl, &mut problems);\n"
+     "            sectors += 1;\n        }",
+     "        if ino.file_acl != 0 {\n            sectors += 1;\n        }", "dies", ""),
 
     ("directories not counted per group", "src/check.rs",
      "            dirs_in.set(num as u64 - 1);", "", "dies", ""),
@@ -234,8 +246,41 @@ def refuse_if_dirty(paths):
         sys.exit(2)
 
 
+def check_patterns():
+    """Does every pattern still appear exactly once in the file it names?
+
+    The whole sweep is the real measurement and it takes an hour, so
+    nobody is present for it most of the time. This asks the one
+    question that rots on its own, which is whether the table still
+    quotes code that exists, and it takes under a second, so `make
+    test` can ask it on every run.
+
+    It is not a weaker version of the sweep: the sweep already exits
+    non-zero on an unmatched pattern. The difference is how often the
+    question gets asked. One entry here, the attribute block claim,
+    had been dead since `sectors += 1;` was inserted into the branch
+    it quoted, and a dead entry is neither killed nor surviving: it
+    does nothing, and the run still prints a total that reads as
+    though it covered everything.
+    """
+    bad = 0
+    for label, path, old, _new, _expect, _note in MUTANTS:
+        n = open(os.path.join(ROOT, path)).read().count(old)
+        if n == 1:
+            print("ok   mutation pattern present once: %s" % label)
+        else:
+            bad += 1
+            print("FAIL mutation pattern appears %d times in %s, not once, so "
+                  "the mutation would do nothing: %s" % (n, path, label))
+    print("COUNT mutation_patterns %d" % len(MUTANTS))
+    print("DONE")
+    return 1 if bad else 0
+
+
 def main():
     only = sys.argv[1] if len(sys.argv) > 1 else None
+    if only == "--check":
+        sys.exit(check_patterns())
     refuse_if_dirty({m[1] for m in MUTANTS})
     killed = 0
     survived = []

@@ -141,3 +141,32 @@ pub fn inline_tail(attrs: &[Attr]) -> Option<&Attr> {
         .iter()
         .find(|a| a.index == 7 && a.name == b"data")
 }
+
+// The inline contents of an inode: the sixty bytes of i_block, then
+// the system.data attribute holding whatever did not fit. The two are
+// one contiguous area, so they are joined before anything parses
+// them, and both callers wanted the same join.
+//
+// i_size comes off the image and nothing else bounds it. A size
+// larger than the area asks for bytes that are not in it, and the
+// caller used to hand that number to Vec::truncate, which only
+// shrinks, so the whole attribute value went out as file content.
+// The contents of an inline inode cannot be longer than the inline
+// area, so a size that says otherwise is a corrupt inode and this
+// refuses rather than guessing which part of it was meant.
+pub fn inline_data(img: &Img, sb: &Sb, ino: &Inode) -> Result<Vec<u8>> {
+    let attrs = read(img, sb, ino)?;
+    let mut buf = ino.block.to_vec();
+    if let Some(tail) = inline_tail(&attrs) {
+        buf.extend_from_slice(&tail.value);
+    }
+    if ino.size as usize > buf.len() {
+        return bad(format!(
+            "inode {} holds its data inline and declares a size of {}, but \
+             only {} bytes are inline",
+            ino.num, ino.size, buf.len()
+        ));
+    }
+    buf.truncate(ino.size as usize);
+    Ok(buf)
+}
