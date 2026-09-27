@@ -138,6 +138,22 @@ MUTANTS = [
      "cluster as the one before it at a mismatched offset inside that "
      "cluster, which is a fragmented allocation mke2fs does not produce"),
 
+    # The three rules the fast symlink and inline_data size bounds
+    # added. The first is the one that had no check at all before:
+    # `extv cat` on a symlink was compared against nothing, so a
+    # symlink read as a block map would have agreed with everybody.
+    ("a fast symlink read through the block map instead", "src/show.rs",
+     "    if ino.is_fast_symlink(sb.block_size) {",
+     "    if false && ino.is_fast_symlink(sb.block_size) {", "dies", ""),
+
+    ("a fast symlink's i_size not required to match its target",
+     "src/show.rs", "        if ino.size != n as u64 {",
+     "        if false && ino.size != n as u64 {", "dies", ""),
+
+    ("an inline inode's i_size not bounded by the inline area",
+     "src/xattr.rs", "    if ino.size as usize > buf.len() {",
+     "    if false && ino.size as usize > buf.len() {", "dies", ""),
+
     ("the trusted. attribute prefix dropped from the table",
      "src/xattr.rs", '    (4, "trusted."),\n', "", "dies", ""),
 
