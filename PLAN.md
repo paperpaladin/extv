@@ -178,20 +178,51 @@ its superblock and reporting what state it is in.
 - [x] `make overread`: three planted one-past-the-end reads, each required to
       panic.
     why: watched to go red with the exact-sizing reverted, or it is decoration.
-- [ ] `make mutants`: mutate each decode path, confirm the suite goes red,
+- [x] `make mutants`: mutate each decode path, confirm the suite goes red,
       write down the survivors.
     why: a test that cannot fail is not a test, and the survivors are the
       honest part of the report.
 - [x] Corpus shape census printed by the suite: how many images of each block
       size, inode size, feature set.
     why: a number from a corpus of one shape is a number about one shape.
-- [ ] bigalloc.
+- [x] bigalloc.
     why: the cluster/block distinction changes every bitmap offset, and it is
       the feature most likely to be silently wrong.
-- [ ] 64bit with more than 2^32 blocks is out of reach (the image would be
+- [x] 64bit with more than 2^32 blocks is out of reach (the image would be
       16 TiB), so say so rather than claim it.
     why: a README that lists only successes is not finished.
-- [ ] README: what it does, the oracles, the measured agreement numbers, the
+- [x] README: what it does, the oracles, the measured agreement numbers, the
       corpus census, and what does not work.
     why: the numbers go stale the moment they are written by hand rather than
-      printed by the suite.
+      printed by the suite. They did: the table said 659 assertions over 36
+      images while the suite printed 769 over 37, and the mutation section
+      said twenty-three while the table held 38.
+- [x] A forged i_size on a fast symlink, and on an inline_data inode.
+    why: `(ino.size as usize).min(60)` over the inode's own 60 bytes is
+      METHOD's buffer-larger-than-its-data shape in Rust. The `.min` turns an
+      out-of-bounds read into an in-bounds one, so no bound fires and no
+      sanitizer can see it, and in a reader of untrusted images that is
+      information disclosure.
+- [x] Wire `make overread` into `make test`, and watch all three plants.
+    why: the target sat here for nine commits with nothing invoking it, so
+      none of the three had been seen go red on the way past a run, which is
+      the only thing a gate is for.
+- [x] `t/mutants.py --check`, and re-quote the entry that had gone dead.
+    why: a mutation whose pattern no longer matches is neither killed nor
+      surviving, it does nothing, and the run still prints a total that reads
+      as complete. The full sweep already exits non-zero on an unmatched
+      pattern; the problem was that nobody is present for an hour.
+- [ ] Sweep every length and bound that comes off the image, in all 19
+      source files, and write down what is found including nothing.
+    why: three instances of one shape turned up in one session, two of them
+      a line apart and the third in a different file. METHOD's rule is that a
+      defect class found repeatedly by hand is a search that has not been
+      written yet, and the fix does not travel on its own: the inline
+      assembly existed in three places and only one of them was named in the
+      report that started this.
+- [ ] A regular file whose i_size exceeds what its blocks can hold.
+    why: `extv cat` pads a hole with zeroes, so a forged i_size of a gigabyte
+      on a one-block file writes a gigabyte of zeroes and exits 0. `extv
+      check` catches the i_blocks mismatch and `cat` does not consult it, so
+      the two commands disagree about the same inode and only one of them is
+      checked against an oracle.

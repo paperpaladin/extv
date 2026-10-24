@@ -231,9 +231,19 @@ MUTANTS = [
 
 
 def suite_is_green():
-    """True when the suite passed, which for a mutant means it survived."""
+    """True when the suite passed, which for a mutant means it survived.
+
+    EXTV_MUTATION_RUN tells run.sh to stand down from the --check
+    pass below. A mutation is applied by replacing one of these exact
+    patterns, so without this every mutant fails that check and every
+    mutant is recorded as killed. Two sweeps ran that way and both
+    reported 38 of 38 killed with all three expected survivors
+    "caught", which is what a vacuous measurement looks like when it
+    flatters you.
+    """
+    env = dict(os.environ, EXTV_MUTATION_RUN="1")
     p = subprocess.run(["make", "test"], cwd=ROOT, stdout=subprocess.PIPE,
-                       stderr=subprocess.STDOUT)
+                       stderr=subprocess.STDOUT, env=env)
     text = p.stdout.decode("latin-1")
     m = re.search(r"^(\d+) passed, (\d+) failed", text, re.M)
     return p.returncode == 0 and m is not None and m.group(2) == "0"

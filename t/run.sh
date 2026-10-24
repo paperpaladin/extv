@@ -334,13 +334,26 @@ done
 
 echo
 echo "--- the mutation table still quotes code that exists"
-# The sweep in t/mutants.py is an hour and nobody is present for it,
-# so this asks the one question that rots on its own: does every
+# The sweep in t/mutants.py is half an hour and nobody is present for
+# it, so this asks the one question that rots on its own: does every
 # pattern still appear exactly once in the file it names. One entry
 # had been dead for several commits because a line was inserted into
 # the branch it quoted, and a dead entry is neither killed nor
 # surviving, it does nothing while the total still reads as complete.
-helper mutants python3 "$here/mutants.py" --check
+#
+# It has to stand down while the sweep is running, and that is not a
+# convenience. A mutation is applied by replacing one of these exact
+# patterns, so with this check in the suite every mutant failed it,
+# every mutant was recorded as killed, and the three survivors the
+# table expects were reported as "expected to survive and the suite
+# caught it". Two full sweeps measured nothing except that the
+# mutation had been applied. The skip is loud and counted, so a run
+# with it set cannot be mistaken for a run that asked the question.
+if [ "${EXTV_MUTATION_RUN:-0}" != 0 ]; then
+	skipped "the mutation table's own patterns: a mutation is applied, so one of them is deliberately not in the tree"
+else
+	helper mutants python3 "$here/mutants.py" --check
+fi
 
 echo
 echo "--- measured totals"
